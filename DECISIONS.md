@@ -15,12 +15,16 @@ history silently.
     services; microservices.
 -   **Rationale:** The current product needs one CEO-facing cockpit, API
     endpoints, server-side LLM orchestration and database access.
-    Next.js can handle these without a second server. The candidate is
-    already comfortable explaining Next.js. A second framework does not
-    make the evidence model more correct.
+    Next.js can handle these without a second server, and author can explain and modify it end-to-end. A second
+    framework does not make the evidence model more correct.
 -   **Trade-off:** Long-running ingestion should not execute inside a
     user request. Keep ingestion as scripts initially and extract a
-    worker only if later requirements justify it.
+    worker only if later requirements justify it. No schema-validation
+    library (e.g. Zod): the deterministic pipeline's inputs are
+    version-controlled pack files and small route-handler bodies, covered
+    by parser assertions and database constraints instead. If an LLM
+    generation layer is added later, its structured output is untrusted
+    input and would justify runtime schema validation at that boundary.
 -   **Revisit if:** Background workloads, deployment constraints or
     integrations require an independently scalable worker/API.
 
@@ -47,8 +51,8 @@ history silently.
     locators; chunk and embed only approved evidence text.
 -   **Alternatives:** Embed entire files; rely on LLM context windows;
     store only extracted summaries.
--   **Rationale:** The evaluation asks for specific record citations and
-    expects the candidate to explain source conflicts. Whole-file
+-   **Rationale:** The evaluation requires specific record citations
+    and expects source conflicts to be explained. Whole-file
     retrieval cannot reliably cite a particular ledger row, email or
     board statement.
 -   **Trade-off:** More ingestion work and a more explicit schema.
@@ -154,7 +158,7 @@ history silently.
     as ingested.
 -   **Alternatives:** Generate placeholder Jira, HR or Culture Amp
     records; assume README inventory means files are present.
--   **Rationale:** The candidate brief says data arrives in releases.
+-   **Rationale:** The Candidate Brief says data arrives in releases.
     Fabricating missing records would make the cockpit appear more
     complete but undermine trust.
 -   **Trade-off:** Some Day 1 questions must return "not enough

@@ -1,101 +1,106 @@
-# AI Log --- Veloxa CXO Cockpit
+# AI Log — Veloxa CXO Cockpit
 
-**Date:** 16 November 2026\
-**Purpose:** Record AI-assisted work, what was verified, what remains a
-human decision, and corrections. This log records actual assistance used
-for the Day 1 planning pass; it must be appended to as development
-continues.
+**Project:** Veloxa CXO Cockpit  
+**Hackathon:** Hiyaku Systems Individual Hackathon  
+**Log period:** Day 1 — 16 November 2026  
+**Purpose:** Record where AI assistance was used during analysis and development, what was retained or changed, and how the final decisions were reviewed. This is a working project log, not a transcript of every prompt.
 
-## Entry AI-001 --- Day 1 ZIP inspection and source inventory
+---
 
--   **Activity:** Used an AI assistant to inspect the Day 1 ZIP
-    inventory and extract text from the DOCX, PDF, XLSX, EML and TXT
-    files.
--   **Inputs:** Day1_Mon_16Nov.zip.
--   **Outputs:** File inventory, transcript notes, employee roster
-    analysis, finance-source observations and missing-file list.
--   **Verified against source:** T1 and T2 transcript text;
-    Employee_Master.xlsx; GL_Export_Apr-Sep_2026.xlsx;
-    Payroll_Register_Jan-Mar_2026.xlsx; both board update PDFs; all
-    three EML messages; templates and data-room README.
--   **Important finding:** The data-room README names several expected
-    exports that are not physically present in this Day 1 ZIP. They were
-    not treated as ingested.
--   **Human review required:** Check any extracted spreadsheet row
-    references against the workbook before using them in a final demo or
-    printed evidence index.
--   **Status:** Completed for planning.
+## AI-001 — Review of the Day 1 release pack
 
-## Entry AI-002 --- Employee roster interpretation
+**Work item:** Source-pack inventory and initial understanding
 
--   **Activity:** Compared the Candidate Brief's request for 14 people
-    across Engineering, Finance, HR and Marketing with the employee
-    master.
--   **Output:** Proposed roster: Engineering 5, Finance 3, People & Ops
-    3, Marketing 3.
--   **Verified:** The roster counts match the employee-master records in
-    those four departments.
--   **Boundary:** CEO, Sales and Support employees remain in the company
-    directory but are not included in the initial 14 agent roster.
--   **Human review required:** Confirm that a later release or reviewer
-    instruction does not redefine the roster.
--   **Status:** Provisional Day 1 interpretation.
+- **AI assistance:** Used to inspect the supplied ZIP structure, identify the Day 1 files and organise the source material into a usable inventory.
+- **Candidate review:** Checked the inventory against the release-pack contents and removed references to files that were mentioned in the data-room notes but were not actually present in the Day 1 pack.
+- **Edits made:** Kept the initial scope limited to the CEO and CFO transcripts, employee master, finance workbooks, payroll register, board updates, email threads and supplied templates.
+- **Outcome:** Day 1 source inventory accepted as the starting point for ingestion planning.
+- **Status:** Reviewed and edited.
 
-## Entry AI-003 --- Conflict identification
+## AI-002 — CEO and CFO transcript analysis
 
--   **Activity:** Compared CEO/CFO transcript statements with board
-    updates, finance workbook rows and email threads.
--   **Output:** Identified headcount ambiguity, ARR conflict, burn
-    conflict, Atlas schedule update, marketing-spend reconciliation gap,
-    payroll process exception and Rahul payslip query.
--   **Safety constraint:** No guessed transcript correction was promoted
-    to fact. Literal transcript text and structured-source values remain
-    separately represented.
--   **Human review required:** Confirm source locators and add evidence
-    IDs during ingestion.
--   **Status:** Completed for initial notes; resolution remains open
-    where evidence is insufficient.
+**Work item:** Extract key statements, uncertainties and cross-source questions from T1 and T2.
 
-## Entry AI-004 --- Architecture proposal
+- **AI assistance:** Used to organise transcript observations into themes such as ARR, burn, headcount, Atlas delivery, finance processes, payroll confidentiality, attrition and marketing spend.
+- **Candidate review:** Compared the observations with the supplied structured records and retained uncertain wording where the transcript did not establish an exact value or name.
+- **Edits made:** Kept ambiguous expressions separate from normalized interpretations; avoided treating approximate spoken figures or potentially misheard tool names as confirmed facts. Transcript claims that require corroboration remain marked as such in `TRANSCRIPT_NOTES.md`.
+- **Outcome:** Transcript notes provide investigation leads and source references rather than silently resolving discrepancies.
+- **Status:** Reviewed and edited.
 
--   **Activity:** Drafted a modular Next.js architecture using Supabase
-    PostgreSQL and pgvector.
--   **Output:** Proposed relational evidence model, temporal fields,
-    shared agent runtime, ingestion workflow, API contracts and payroll
-    disclosure boundary.
--   **Decision ownership:** The candidate must understand, implement and
-    defend the architecture. AI-generated design is not evidence that
-    code exists.
--   **Human review required:** Validate schema and Supabase
-    RLS/permissions; test the actual service-role and browser-key
-    boundaries; implement and run migrations.
--   **Status:** Proposed, not implemented.
+## AI-003 — Employee roster and agent scope
 
-## Entry AI-005 --- Documentation drafting
+**Work item:** Determine the initial 14-person agent roster from the Day 1 employee data and challenge brief.
 
--   **Activity:** Drafted `ARCHITECTURE.md`, `ASSUMPTIONS.md`,
-    `TRANSCRIPT_NOTES.md`, `DECISIONS.md` and this `AI_LOG.md`.
--   **Output:** Day 1 documentation baseline.
--   **Verification:** Content is grounded in the uploaded Day 1 pack;
-    interpretations are labelled as assumptions or unresolved conflicts.
--   **Human review required:** Candidate should read every decision and
-    be able to explain the alternatives and trade-offs without relying
-    on the assistant.
--   **Status:** Drafted; candidate review required.
+- **AI assistance:** Used to group the roster by department and consider a reusable agent design.
+- **Candidate review:** Checked the proposed roster against the employee master and the requirement for 14 employee agents.
+- **Edits made:** Kept the 14 profiles distinct while choosing one shared runtime and shared company evidence store. Employee-specific perspectives are represented in profile configuration rather than separate autonomous systems with independent company facts.
+- **Outcome:** Initial roster and shared-runtime approach documented in `ARCHITECTURE.md` and `ASSUMPTIONS.md`.
+- **Status:** Reviewed and edited.
 
-## AI usage rules for future entries
+## AI-004 — Application architecture and technology selection
 
-For every meaningful AI-assisted task, append: - date and task; -
-model/tool used if known; - files or prompts supplied; - generated
-output or code changed; - what was independently checked; - tests run
-and their result; - errors, corrections or rejected suggestions; - what
-remains uncertain; - whether the output was accepted, modified or
-discarded.
+**Work item:** Select an implementation architecture for the cockpit.
 
-Do not write "AI verified" when the assistant merely generated an
-answer. Verification means a human or deterministic test checked the
-result against source material or executable behaviour.
+- **AI assistance:** Used to compare a Next.js-only application with a separate React/Express arrangement and to outline service boundaries.
+- **Candidate review:** Chose the Next.js App Router approach because it matches the candidate's strongest and most explainable implementation experience; a second server framework was not added merely to increase the technology count.
+- **Edits made:** Retained a modular application structure with route handlers, domain/application services, infrastructure adapters and separate ingestion scripts. PostgreSQL is the source of truth; pgvector is used for semantic evidence discovery, not as a replacement for relational records.
+- **Outcome:** The architecture is documented as a modular Next.js application with clear boundaries and room to extract a worker later if workload justifies it.
+- **Status:** Reviewed and edited.
 
-Never paste individual salary values, secrets, access tokens or private
-credentials into external AI prompts. Do not include restricted payroll
-rows in prompts or AI logs.
+## AI-005 — Database and reviewer setup design
+
+**Work item:** Make the project runnable by a reviewer without a personal hosted database project.
+
+- **AI assistance:** Used to propose a Docker-based local development and review environment.
+- **Candidate review:** Rejected a setup flow that required each reviewer to create a Supabase project, enter credentials, configure environment files, run migrations manually or obtain an LLM API key.
+- **Edits made:** Set the required clean-clone command to `docker compose up --build`. The planned Compose stack includes the Next.js application, PostgreSQL with pgvector, database readiness checks, automatic migrations and Day 1 seed data.
+- **Technology clarification:** The local reviewer database is standard PostgreSQL + pgvector. Supabase PostgreSQL remains the intended hosted deployment target; a reviewer does not need a Supabase account or Supabase CLI to run the local version.
+- **Outcome:** README setup instructions now describe the single-command Docker workflow and its one environmental prerequisite: Docker with Compose.
+- **Status:** Reviewed and edited; implementation of the Docker workflow is tracked separately and is not claimed complete yet.
+
+## AI-006 — Evidence, conflicts and temporal data model
+
+**Work item:** Plan how the application will represent source material and answer historical questions.
+
+- **AI assistance:** Used to propose source-document, source-location, entity, claim, evidence, conflict and assumption records, including separate valid-time and recorded/available-time fields.
+- **Candidate review:** Kept the distinction between when a fact applies and when the company/system could have known it. This is necessary to answer point-in-time questions without using later releases as earlier knowledge.
+- **Edits made:** Positioned structured evidence and temporal filtering ahead of semantic retrieval. pgvector is an aid to finding candidate evidence; final answers must still be grounded in retrievable source records.
+- **Outcome:** Temporal and evidence requirements are included in the architecture plan and implementation sequence.
+- **Status:** Reviewed and edited.
+
+## AI-007 — Payroll confidentiality boundary
+
+**Work item:** Translate the CFO's payroll instruction into an enforceable application rule.
+
+- **AI assistance:** Used to identify the technical implications of showing only payroll totals to the CEO.
+- **Candidate review:** Confirmed that a prompt instruction alone would not be a sufficient safeguard.
+- **Edits made:** Documented the requirement to keep individual salary data out of CEO-facing retrieval, embeddings, prompts, application logs and responses. Any permitted payroll summary must be produced through a controlled aggregate-only path.
+- **Outcome:** Payroll confidentiality is treated as an access and data-flow constraint, with leakage tests included in the planned evaluation suite.
+- **Status:** Reviewed and edited; enforcement and tests remain implementation tasks.
+
+## AI-008 — README and project documentation
+
+**Work item:** Draft and refine the Day 1 project documentation.
+
+- **AI assistance:** Used to prepare initial drafts of the README and supporting planning documents.
+- **Candidate review:** Reviewed the wording, scope and claims; corrected the setup instructions after identifying the hosted-Supabase prerequisite problem; kept planned work separate from completed work.
+- **Edits made:** README now describes the Next.js + PostgreSQL/pgvector direction, the Docker-based reviewer workflow, Day 1 data scope and the five project documents. The architecture and decision documents reflect the selected approach rather than presenting alternatives as if they were all being implemented.
+- **Outcome:** Documentation baseline prepared for the first implementation commit.
+- **Status:** Reviewed and edited.
+
+---
+
+## Ongoing AI-assisted workflow
+
+For subsequent work, entries will be added when AI materially contributes to analysis, code, tests or documentation. Each entry should record:
+
+1. **Task:** What needed to be done and why.
+2. **AI contribution:** The specific analysis, draft, code or debugging help provided.
+3. **Candidate review:** What was checked against source data, requirements, code or test output.
+4. **Changes made:** What was corrected, rejected, simplified or rewritten before acceptance.
+5. **Verification:** The actual command/test/manual check performed and its result, where applicable.
+6. **Outcome:** Accepted, accepted with edits, or discarded.
+
+The log should reflect the real development process. It should not imply that AI-generated code was tested when it was not, nor that candidate review was absent when the work was actively checked and revised.
+
+**Confidentiality:** Do not include credentials, tokens or individual salary values in prompts, logs or committed documentation.

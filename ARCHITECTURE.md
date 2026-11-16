@@ -20,13 +20,15 @@ microservices and not 14 independent chatbots.
     authority for a fact.
 -   **Node.js runtime** for server-side application and ingestion
     scripts.
--   **Zod** for validating ingestion output and API inputs.
+-   No schema-validation library. Ingestion records are checked by
+    explicit parser assertions and enforced by database constraints
+    (types, `NOT NULL`, checks); API request bodies are validated with
+    direct checks in thin route handlers.
 -   **LLM provider behind an adapter** so prompts/model/provider can
     change without rewriting domain logic.
 -   **Vitest** for unit and integration tests.
 
-Do not add Express simply to demonstrate another framework. Route
-Handlers are sufficient for the current application boundary. Keep
+Route Handlers are sufficient for the current application boundary. Keep
 ingestion as separately executable scripts; if later releases require
 long-running jobs, extract a worker without changing the domain model.
 
@@ -313,7 +315,8 @@ Persona material separated from verified HR facts.
 -   `persona_version` text
 
 Every invented personal-life detail must link to an assumption record.
-Do not invent performance reviews, private conversations, medical
+Persona invention excludes performance
+reviews, private conversations, medical
 information, political views or other sensitive facts.
 
 ### `assumptions`
@@ -458,8 +461,8 @@ containing communication style and explicitly labelled invented life
 details; - a perspective policy: the employee may express a view,
 uncertainty or limited knowledge, but may not fabricate company facts.
 
-**Do not create 14 separate LLM deployments.** Use one shared agent
-runtime with 14 profile configurations. This is easier to test, cheaper,
+**One shared agent runtime serves all 14 personas** through profile
+configurations. This is easier to test, cheaper,
 more consistent and more defensible.
 
 An agent response should distinguish: - "I can confirm from the
