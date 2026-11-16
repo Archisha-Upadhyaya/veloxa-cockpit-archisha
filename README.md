@@ -2,9 +2,12 @@
 
 An evidence-grounded executive intelligence system for **Veloxa Technologies**, developed for the Hiyaku Systems Individual Hackathon (16–20 November 2026).
 
-Veloxa CXO Cockpit gives the CEO a single interface to ask questions about the company, inspect the evidence behind answers, understand conflicting information and identify business risks that need attention.
+Veloxa CXO Cockpit is planned as a single interface for the CEO to ask
+questions about the company, inspect the evidence behind answers,
+understand conflicting information and identify business risks that need
+attention.
 
-## Core Capabilities
+## Planned Core Capabilities
 
 - **Executive Intelligence:** Ask company-wide questions and receive concise, evidence-backed answers.
 - **Evidence & Reconciliation:** Connect information across documents, transcripts, spreadsheets and company records while preserving source disagreements.
@@ -99,7 +102,9 @@ docker-compose.yml
 
 ## Running Locally
 
-The project is designed so that reviewers can run it without creating external accounts or configuring environment variables.
+The project is designed so that reviewers can run it without creating
+external accounts or configuring environment variables. The local stack
+uses the same PostgreSQL extensions as the hosted Supabase database.
 
 **Prerequisite:** Docker with Docker Compose support, running on the machine.
 
@@ -107,28 +112,67 @@ The project is designed so that reviewers can run it without creating external a
 docker compose up --build
 ```
 
-This single command is intended to:
+This single command:
 
 1. Build the Next.js application.
 2. Start the local PostgreSQL database with pgvector.
 3. Wait for the database health check.
-4. Apply database migrations automatically.
-5. Load the supplied Day 1 demonstration data.
-6. Start the application.
+4. Start the application.
 
 Once running, open:
 
 **http://localhost:3000**
 
-No Supabase account, API key, `.env.local` file, manual database setup or separate seed command is required for the local evaluation workflow.
+No Supabase account, API key, `.env.local` file, manual database setup or
+separate migration command is required for the Docker smoke-test workflow.
+The local database is intentionally empty until the Supabase schema and
+application data model are finalized.
 
-The local demonstration mode is designed to remain functional without an external LLM API key. AI-provider integration can be enabled separately, without making it a prerequisite for starting or exploring the application.
-
-To stop the application, use `Ctrl+C`. To stop and remove the local containers:
+To stop the application, use `Ctrl+C`. To stop and remove the local
+containers:
 
 ```bash
 docker compose down
 ```
+
+To also delete the local database volume and start with an empty database:
+
+```bash
+docker compose down -v
+```
+
+## Planned hosted Supabase deployment
+
+The hosted database path is planned, but is not configured in the current
+commit:
+
+1. Create a Supabase project at <https://supabase.com/dashboard>.
+2. Apply the finalized schema through the Supabase SQL Editor or Supabase
+   CLI after the schema work is complete.
+3. Copy `.env.example` to `.env.local` for hosted-database testing,
+   or configure the same variables in the deployment provider:
+   `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `NEXT_PUBLIC_APP_URL`.
+4. Deploy this Next.js application to a Node-compatible host such as
+   Vercel. The provider's deployment URL is the deployed link to share.
+
+`DATABASE_URL` must be a server-only secret. Never put a Supabase
+service-role key in client code or expose it as a `NEXT_PUBLIC_*` variable.
+The current UI is a foundation page; database-backed product features
+should be enabled only after their server-side data access modules are
+implemented.
+
+### Current integration boundary
+
+The current application does not yet query either database: the home page
+is still the default foundation page. `DATABASE_URL` and the Supabase
+variables are configuration placeholders for the next database
+implementation step, not evidence that Supabase-backed features are
+already live.
+
+The local Docker smoke-test runtime is functional without an external LLM
+API key. AI-provider integration is planned separately and is not a
+prerequisite for starting the current foundation app.
 
 ## Documentation
 
@@ -139,6 +183,8 @@ docker compose down
 | `TRANSCRIPT_NOTES.md` | Transcript interpretation, ambiguous statements and source conflicts |
 | `DECISIONS.md` | Architectural and product decisions, alternatives and trade-offs |
 | `AI_LOG.md` | AI-assisted work, human review, corrections and accepted outcomes |
+| `supabase/migrations/` | Planned PostgreSQL/pgvector schema location |
+| `.env.example` | Safe template for hosted database and deployment variables |
 
 ## Development Status
 

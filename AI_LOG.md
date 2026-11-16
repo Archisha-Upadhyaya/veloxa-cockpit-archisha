@@ -53,10 +53,10 @@
 
 - **AI assistance:** Used to propose a Docker-based local development and review environment.
 - **Candidate review:** Rejected a setup flow that required each reviewer to create a Supabase project, enter credentials, configure environment files, run migrations manually or obtain an LLM API key.
-- **Edits made:** Set the required clean-clone command to `docker compose up --build`. The planned Compose stack includes the Next.js application, PostgreSQL with pgvector, database readiness checks, automatic migrations and Day 1 seed data.
+- **Edits made:** Set the required clean-clone command to `docker compose up --build`. The planned Compose stack included the Next.js application, PostgreSQL with pgvector and database readiness checks. Database initialization and Day 1 source ingestion remain separate.
 - **Technology clarification:** The local reviewer database is standard PostgreSQL + pgvector. Supabase PostgreSQL remains the intended hosted deployment target; a reviewer does not need a Supabase account or Supabase CLI to run the local version.
 - **Outcome:** README setup instructions now describe the single-command Docker workflow and its one environmental prerequisite: Docker with Compose.
-- **Status:** Reviewed and edited; implementation of the Docker workflow is tracked separately and is not claimed complete yet.
+- **Status:** Reviewed and edited. The Docker runtime was implemented and verified in AI-009; database initialization remains planned.
 
 ## AI-006 — Evidence, conflicts and temporal data model
 
@@ -87,6 +87,28 @@
 - **Edits made:** README now describes the Next.js + PostgreSQL/pgvector direction, the Docker-based reviewer workflow, Day 1 data scope and the five project documents. The architecture and decision documents reflect the selected approach rather than presenting alternatives as if they were all being implemented.
 - **Outcome:** Documentation baseline prepared for the first implementation commit.
 - **Status:** Reviewed and edited.
+
+---
+
+## AI-009 — Portable PostgreSQL and Supabase setup
+
+**Work item:** Implement the documented local Docker runtime while
+deferring the database schema until the Supabase project is ready.
+
+- **AI assistance:** Used to draft a health-checked Compose stack, a
+  production Next.js container and an environment template.
+- **Candidate review:** Checked that local startup does not require
+  Supabase credentials and that hosted instructions do not invent a
+  deployment URL or expose secrets.
+- **Edits made:** Added `Dockerfile`, `docker-compose.yml`,
+  `.dockerignore` and `.env.example`. The Docker database is intentionally
+  empty; README, architecture and decision documentation distinguish the
+  working runtime from planned schema, ingestion and product features.
+- **Verification:** `docker compose config`, `pnpm lint`, `pnpm build`,
+  and a full `docker compose up --build` smoke test passed. The smoke
+  test confirmed the app responded on port 3000 and the PostgreSQL service
+  became healthy.
+- **Outcome:** Accepted with the local and hosted setup paths documented.
 
 ---
 
