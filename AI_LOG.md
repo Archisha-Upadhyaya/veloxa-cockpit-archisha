@@ -56,7 +56,9 @@
 - **Edits made:** Set the required clean-clone command to `docker compose up --build`. The planned Compose stack included the Next.js application, PostgreSQL with pgvector and database readiness checks. Database initialization and Day 1 source ingestion remain separate.
 - **Technology clarification:** The local reviewer database is standard PostgreSQL + pgvector. Supabase PostgreSQL remains the intended hosted deployment target; a reviewer does not need a Supabase account or Supabase CLI to run the local version.
 - **Outcome:** README setup instructions now describe the single-command Docker workflow and its one environmental prerequisite: Docker with Compose.
-- **Status:** Reviewed and edited. The Docker runtime was implemented and verified in AI-009; database initialization remains planned.
+- **Status:** Reviewed and edited. The Docker runtime was implemented and
+  verified in AI-009; database initialization was added after the Supabase
+  project became available.
 
 ## AI-006 — Evidence, conflicts and temporal data model
 
@@ -92,22 +94,24 @@
 
 ## AI-009 — Portable PostgreSQL and Supabase setup
 
-**Work item:** Implement the documented local Docker runtime while
-deferring the database schema until the Supabase project is ready.
+**Work item:** Implement the documented local Docker runtime and prepare
+the shared schema for the Supabase project.
 
 - **AI assistance:** Used to draft a health-checked Compose stack, a
-  production Next.js container and an environment template.
+  production Next.js container, an environment template and a shared
+  PostgreSQL/pgvector migration.
 - **Candidate review:** Checked that local startup does not require
-  Supabase credentials and that hosted instructions do not invent a
+  Supabase credentials, that the local database initializes from the
+  committed migration, and that hosted instructions do not invent a
   deployment URL or expose secrets.
 - **Edits made:** Added `Dockerfile`, `docker-compose.yml`,
-  `.dockerignore` and `.env.example`. The Docker database is intentionally
-  empty; README, architecture and decision documentation distinguish the
-  working runtime from planned schema, ingestion and product features.
+  `.dockerignore`, `.env.example` and the initial shared migration.
+  README, architecture and decision documentation distinguish the working
+  database foundation from planned ingestion and product features.
 - **Verification:** `docker compose config`, `pnpm lint`, `pnpm build`,
   and a full `docker compose up --build` smoke test passed. The smoke
-  test confirmed the app responded on port 3000 and the PostgreSQL service
-  became healthy.
+  test confirmed the app responded on port 3000, the PostgreSQL service
+  became healthy and the migration created the expected tables.
 - **Outcome:** Accepted with the local and hosted setup paths documented.
 
 ---

@@ -117,16 +117,16 @@ This single command:
 1. Build the Next.js application.
 2. Start the local PostgreSQL database with pgvector.
 3. Wait for the database health check.
-4. Start the application.
+4. Apply the committed database schema on first database startup.
+5. Start the application.
 
 Once running, open:
 
 **http://localhost:3000**
 
 No Supabase account, API key, `.env.local` file, manual database setup or
-separate migration command is required for the Docker smoke-test workflow.
-The local database is intentionally empty until the Supabase schema and
-application data model are finalized.
+separate migration command is required for the local Docker workflow. The
+schema is initialized only when the database volume is first created.
 
 To stop the application, use `Ctrl+C`. To stop and remove the local
 containers:
@@ -141,19 +141,42 @@ To also delete the local database volume and start with an empty database:
 docker compose down -v
 ```
 
-## Planned hosted Supabase deployment
+## Hosted Supabase deployment
 
-The hosted database path is planned, but is not configured in the current
-commit:
+The migration in
+[`supabase/migrations/20261117000000_initial_schema.sql`](supabase/migrations/20261117000000_initial_schema.sql)
+is now the shared schema for local PostgreSQL and the Supabase project.
+Apply it to Supabase with either option below.
 
-1. Create a Supabase project at <https://supabase.com/dashboard>.
-2. Apply the finalized schema through the Supabase SQL Editor or Supabase
-   CLI after the schema work is complete.
-3. Copy `.env.example` to `.env.local` for hosted-database testing,
-   or configure the same variables in the deployment provider:
-   `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `NEXT_PUBLIC_APP_URL`.
-4. Deploy this Next.js application to a Node-compatible host such as
+### Option A: Supabase SQL Editor
+
+Open the project's SQL Editor, paste the complete migration file, and run
+it once:
+
+<https://supabase.com/dashboard/project/ccjbbuvhprwbmmdvkydr/sql/new>
+
+### Option B: Supabase CLI
+
+From the repository root, after installing and authenticating the Supabase
+CLI:
+
+```bash
+supabase login
+supabase link --project-ref ccjbbuvhprwbmmdvkydr
+supabase db push
+```
+
+For local hosted-database testing, copy `.env.example` to `.env.local`,
+then fill in the real values:
+
+```bash
+cp .env.example .env.local
+```
+
+For deployment, configure the same variables in the deployment provider:
+`DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` and `NEXT_PUBLIC_APP_URL`.
+Deploy this Next.js application to a Node-compatible host such as
    Vercel. The provider's deployment URL is the deployed link to share.
 
 `DATABASE_URL` must be a server-only secret. Never put a Supabase
@@ -164,11 +187,9 @@ implemented.
 
 ### Current integration boundary
 
-The current application does not yet query either database: the home page
-is still the default foundation page. `DATABASE_URL` and the Supabase
-variables are configuration placeholders for the next database
-implementation step, not evidence that Supabase-backed features are
-already live.
+The current application has the schema and connection configuration ready,
+but the home page does not yet query the database. Database-backed product
+features remain the next implementation step.
 
 The local Docker smoke-test runtime is functional without an external LLM
 API key. AI-provider integration is planned separately and is not a
@@ -183,7 +204,7 @@ prerequisite for starting the current foundation app.
 | `TRANSCRIPT_NOTES.md` | Transcript interpretation, ambiguous statements and source conflicts |
 | `DECISIONS.md` | Architectural and product decisions, alternatives and trade-offs |
 | `AI_LOG.md` | AI-assisted work, human review, corrections and accepted outcomes |
-| `supabase/migrations/` | Planned PostgreSQL/pgvector schema location |
+| `supabase/migrations/` | Shared PostgreSQL/pgvector schema |
 | `.env.example` | Safe template for hosted database and deployment variables |
 
 ## Development Status

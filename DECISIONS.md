@@ -233,20 +233,20 @@ history silently.
 -   **Trade-off:** Day 1 UI may be intentionally plain.
 -   **Revisit if:** Core correctness checks pass and time remains.
 
-## D-016 --- Plan one portable migration for local and hosted PostgreSQL
+## D-016 --- Use one portable migration for local and hosted PostgreSQL
 
--   **Decision:** Keep the future schema in `supabase/migrations/` and
-    use the same SQL for local pgvector Docker development and Supabase
-    deployment once the Supabase data model is finalized.
+-   **Decision:** Keep the schema in `supabase/migrations/` and use the
+    same SQL for local pgvector Docker development and Supabase deployment.
 -   **Alternatives:** Maintain a separate local schema; require every
     reviewer to run a database setup script; use SQLite locally.
--   **Rationale:** One migration should prevent local and hosted schemas
-    from drifting. The current Docker database remains empty so no
-    provisional schema is mistaken for the final model.
+-   **Rationale:** One migration prevents local and hosted schemas from
+    drifting. Docker applies it on a fresh volume; Supabase can apply it
+    through SQL Editor or CLI.
 -   **Trade-off:** The local container is not a full Supabase emulator.
     Supabase-specific authentication, storage and row-level policies must
     be added when those application features are implemented.
--   **Status:** Planned; implementation begins after the Supabase project
-    and schema are ready.
+-   **Status:** Implemented for the initial relational foundation.
+    Application queries, ingestion and additional policy rules remain
+    planned.
 -   **Revisit if:** The application begins depending on Supabase services
     beyond PostgreSQL and pgvector.

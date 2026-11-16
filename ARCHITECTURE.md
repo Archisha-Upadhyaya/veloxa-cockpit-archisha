@@ -28,10 +28,12 @@ microservices and not 14 independent chatbots.
     change without rewriting domain logic.
 -   **Vitest** for unit and integration tests.
 
-The database schema is planned for `supabase/migrations/`. No schema is
-currently committed or applied by Docker. The local Compose stack provides
-an empty PostgreSQL + pgvector service so the schema can be finalized
-against the hosted Supabase project without introducing a dummy schema.
+The shared database schema is committed at
+`supabase/migrations/20261117000000_initial_schema.sql`. Docker applies it
+when a fresh PostgreSQL volume is initialized, and the same migration can
+be applied to the hosted Supabase project through SQL Editor or the
+Supabase CLI. It establishes the relational foundation only; source-pack
+ingestion and dashboard features remain separate implementation work.
 
 Route Handlers are sufficient for the current application boundary. Keep
 ingestion as separately executable scripts; if later releases require
@@ -614,8 +616,8 @@ tables or submit unrestricted SQL.
 ## 14. Day 1 implementation sequence
 
 1.  Establish the database migration and environment validation. **The
-    local Docker database service is in place; migration and validation
-    remain planned work.**
+    migration and local Docker database initialization are in place;
+    application queries and ingestion remain planned work.**
 2.  Build source registry and ingestion parsers for DOCX, PDF, XLSX, EML
     and TXT.
 3.  Ingest employee master, board updates, ledger and emails.
