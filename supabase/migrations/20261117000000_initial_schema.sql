@@ -45,6 +45,11 @@ create table if not exists public.evidence_items (
 
 create index if not exists evidence_items_available_at_idx on public.evidence_items (available_at);
 create index if not exists evidence_items_entity_id_idx on public.evidence_items (entity_id);
+create unique index if not exists evidence_items_source_location_uidx
+  on public.evidence_items (source_location_id);
+create index if not exists evidence_items_embedding_hnsw_idx
+  on public.evidence_items using hnsw (embedding vector_cosine_ops)
+  where embedding is not null;
 
 create table if not exists public.claims (
   id uuid primary key default gen_random_uuid(),
@@ -56,6 +61,9 @@ create table if not exists public.claims (
   valid_to date,
   created_at timestamptz not null default now()
 );
+
+create unique index if not exists claims_claim_text_uidx
+  on public.claims (claim_text);
 
 create table if not exists public.claim_evidence (
   claim_id uuid not null references public.claims(id) on delete cascade,
@@ -139,6 +147,9 @@ create table if not exists public.answer_runs (
   created_at timestamptz not null default now()
 );
 
+create unique index if not exists answer_runs_question_uidx
+  on public.answer_runs (question);
+
 create table if not exists public.answer_claims (
   answer_run_id uuid not null references public.answer_runs(id) on delete cascade,
   claim_id uuid not null references public.claims(id) on delete restrict,
@@ -160,3 +171,48 @@ alter table public.risk_items enable row level security;
 alter table public.risk_evidence enable row level security;
 alter table public.answer_runs enable row level security;
 alter table public.answer_claims enable row level security;
+
+create or replace function public.match_evidence(
+  query_embedding vector(1536),
+  match_threshold real default 0.72,
+  match_count integer default 8,
+  as_of timestamptz default now()
+)
+returns table (
+  evidence_id uuid,
+  evidence_text text,
+  similarity real,
+  source_document_id uuid,
+  source_title text,
+  source_type text,
+  locator text,
+  quoted_text text,
+  available_at timestamptz
+)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select
+    evidence.id,
+    evidence.evidence_text,
+    (1 - (evidence.embedding <=> query_embedding))::real as similarity,
+    document.id,
+    document.title,
+    document.source_type,
+    location.locator,
+    location.quoted_text,
+    evidence.available_at
+  from public.evidence_items as evidence
+  join public.source_locations as location
+    on location.id = evidence.source_location_id
+  join public.source_documents as document
+    on document.id = location.source_document_id
+  where evidence.embedding is not null
+    and evidence.is_sensitive = false
+    and evidence.available_at <= as_of
+    and 1 - (evidence.embedding <=> query_embedding) >= match_threshold
+  order by evidence.embedding <=> query_embedding
+  limit least(greatest(match_count, 1), 50);
+$$;

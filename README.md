@@ -175,25 +175,101 @@ cp .env.example .env.local
 
 For deployment, configure the same variables in the deployment provider:
 `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` and `NEXT_PUBLIC_APP_URL`.
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `NEXT_PUBLIC_APP_URL`. Server-side
+database routes also require `SUPABASE_SECRET_KEY`.
 Deploy this Next.js application to a Node-compatible host such as
    Vercel. The provider's deployment URL is the deployed link to share.
 
 `DATABASE_URL` must be a server-only secret. Never put a Supabase
-service-role key in client code or expose it as a `NEXT_PUBLIC_*` variable.
-The current UI is a foundation page; database-backed product features
-should be enabled only after their server-side data access modules are
-implemented.
+secret key in client code or expose it as a `NEXT_PUBLIC_*` variable. The
+publishable key is safe for browser use, but database tables still require
+appropriate RLS policies. The `/api/people` route uses the server-only secret
+key and currently returns active rows from `employee_profiles`.
 
-### Current integration boundary
+### Supabase key migration
 
-The current application has the schema and connection configuration ready,
-but the home page does not yet query the database. Database-backed product
-features remain the next implementation step.
+Supabase has replaced the legacy `anon` and `service_role` labels with
+publishable and secret keys. Use `sb_publishable_...` as
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `sb_secret_...` as
+`SUPABASE_SECRET_KEY`. Existing projects may temporarily use
+`SUPABASE_SERVICE_ROLE_KEY` with the server route, but new deployments should
+use the secret-key variable.
 
 The local Docker smoke-test runtime is functional without an external LLM
 API key. AI-provider integration is planned separately and is not a
 prerequisite for starting the current foundation app.
+
+### Loading the initial Day 1 data
+
+The committed UI data is a reviewed Day 1 evidence pack, not production
+database data. To load it into the normalized Supabase tables, first apply
+the migration (including its idempotency indexes), then run:
+
+```bash
+npx pnpm@10.19.0 install
+npm run seed:supabase
+```
+
+The seed is safe to run repeatedly. It upserts 19 employee profiles and agent
+personas, source documents and evidence citations, answer runs and claims, and
+risk items with their evidence links. It does not invent raw source material,
+salary data, embeddings, or November activity. Those require ingestion from
+the corresponding source files and should be added through a separate
+ingestion job.
+
+The seed uses `SUPABASE_SECRET_KEY` from `.env.local`; it must never be
+exposed in browser code. The people directory now queries `/api/people`, which
+reads `employee_profiles` from Supabase and falls back to the reviewed static
+data only when the table is empty or the request fails.
+
+### pgvector and RAG retrieval
+
+The database schema uses `pgvector` in `evidence_items.embedding` with
+1536-dimensional vectors. The migration also creates an HNSW cosine index and
+the `match_evidence` SQL function. The application retrieval path is:
+
+```text
+question
+  -> OpenAI-compatible embedding endpoint
+  -> /api/retrieve
+  -> match_evidence(query_embedding)
+  -> evidence chunks + source citations
+  -> future LLM answer generation
+```
+
+After applying the latest migration in the Supabase SQL Editor, configure a
+Gemini API key from Google AI Studio in `.env.local`:
+
+```env
+GEMINI_API_KEY=...
+EMBEDDINGS_MODEL=gemini-embedding-001
+```
+
+The embedding adapter calls Gemini's `batchEmbedContents` endpoint, uses
+`RETRIEVAL_DOCUMENT` for stored evidence and `RETRIEVAL_QUERY` for questions,
+and requests 1536 dimensions to match `vector(1536)`. A ChatGPT/OpenAI key is
+not required.
+
+Then create vectors for the seeded evidence:
+
+```bash
+npm run embed:supabase
+```
+
+This command embeds only non-sensitive evidence with a null embedding. It is
+safe to repeat and never embeds salary or other rows marked sensitive. The
+retrieval endpoint can then be tested with:
+
+```bash
+curl -X POST http://localhost:3000/api/retrieve \
+  -H 'content-type: application/json' \
+  -d '{"query":"What is the current ARR?"}'
+```
+
+This is the retrieval half of RAG. It deliberately does not call an LLM or
+write generated answers into the evidence store yet. The next layer should
+send only the returned, cited chunks to an LLM adapter and persist the
+result in `answer_runs`.
 
 ## Documentation
 
