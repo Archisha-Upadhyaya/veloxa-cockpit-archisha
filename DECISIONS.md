@@ -250,3 +250,46 @@ history silently.
     planned.
 -   **Revisit if:** The application begins depending on Supabase services
     beyond PostgreSQL and pgvector.
+
+## D-017 --- Show three concerns on the overview, keep all concerns available
+
+-   **Decision:** `/api/dashboard` returns the three highest-priority open
+    concerns. `/api/risks` returns the full deduplicated register, and every
+    concern links to `/risks/[riskKey]`.
+-   **Alternatives:** Generate exactly three concerns per analysis run; show
+    only three anywhere; show the three newest.
+-   **Rationale:** T6a asks for "top three" on opening, but analysis should
+    not be capped at three. A fourth material concern must remain visible
+    rather than being dropped or forced into a weaker top-three list.
+-   **Trade-off:** Two views to maintain, and the ranking must be stable.
+-   **Revisit if:** The CEO explicitly wants newest-first ordering or a
+    different overview count.
+
+## D-018 --- Sanitise evidence at read time, not only at ingestion
+
+-   **Decision:** Every CEO-facing extract passes through
+    `src/lib/evidence/snippet.ts`, even when the database already contains an
+    older unsanitised chunk.
+-   **Alternatives:** Trust ingestion-time cleanup; hide the evidence panel
+    entirely.
+-   **Rationale:** Existing databases and future ingestion paths can contain
+    raw CSV rows, metric tables, or payroll text. A presentation guard keeps
+    the UI safe without requiring a destructive re-ingest.
+-   **Trade-off:** Some chunks produce no extract and show an honest empty
+    state.
+-   **Revisit if:** All ingestion paths guarantee structured, pre-summarised
+    extracts.
+
+## D-019 --- Run the same schema locally through PostgREST
+
+-   **Decision:** The Docker stack runs PostgreSQL + pgvector, PostgREST, and
+    a small nginx gateway that rewrites `/rest/v1/*`. The app's Supabase JS
+    client works unchanged.
+-   **Alternatives:** Require a hosted Supabase project; replace the client
+    with raw `pg` queries in Docker.
+-   **Rationale:** Reviewers need one-command setup without accounts, and
+    local/hosted behaviour must not drift.
+-   **Trade-off:** The local stack does not emulate Supabase Auth, Storage, or
+    RLS. The current app uses only PostgreSQL and pgvector.
+-   **Revisit if:** A feature depends on a Supabase service other than the
+    database.

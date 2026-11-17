@@ -1,348 +1,235 @@
 # Veloxa CXO Cockpit
 
-An evidence-grounded executive intelligence system for **Veloxa Technologies**, developed for the Hiyaku Systems Individual Hackathon (16–20 November 2026).
+An evidence-grounded executive cockpit for **Veloxa Technologies**, built for the
+Hiyaku Systems Individual Hackathon (16–20 November 2026).
 
-Veloxa CXO Cockpit is planned as a single interface for the CEO to ask
-questions about the company, inspect the evidence behind answers,
-understand conflicting information and identify business risks that need
-attention.
+The CEO can ask company-wide questions, read short supporting extracts, inspect
+open concerns, and talk to employee agents whose answers stay grounded in the
+released material. Every visible extract is sanitised: the cockpit shows a
+sentence a person can read, never a CSV row, a table, or a raw document chunk.
 
-## Planned Core Capabilities
+## What works today
 
-- **Executive Intelligence:** Ask company-wide questions and receive concise, evidence-backed answers.
-- **Evidence & Reconciliation:** Connect information across documents, transcripts, spreadsheets and company records while preserving source disagreements.
-- **Employee Agents:** Interact with 14 employee personas grounded in company data, each with their own role, responsibilities, workload, history and perspective.
-- **Risk Intelligence:** Identify and rank business concerns using supporting evidence and explainable reasoning.
-- **Point-in-Time Queries:** Reconstruct what the company knew at a particular date without allowing later information to influence historical answers.
-- **Uncertainty Handling:** Distinguish verified facts, inferences and assumptions. Acknowledge missing or contradictory evidence instead of presenting guesses as facts.
+- **Company overview** — headcount, open concerns, latest sources, and a
+  three-item priority list. The overview never tries to show every concern.
+- **Concern register** — all open and watch items, ranked by severity,
+  likelihood, and recency. Every concern opens a detail page with short
+  evidence and a confidentiality notice when material is withheld.
+- **Evidence-grounded search** — `/api/retrieve` returns deduplicated snippets
+  with source and date labels, not raw chunks.
+- **Employee agents** — 14 employee personas. Answers sound like a colleague:
+  they use first person, admit what they do not know, and never expose pay or
+  quote internal records. Pay questions get a short, polite refusal.
+- **Ingestion** — Day-wise release packs are scanned from `transcripts/` and
+  `data_room/`, hashed, and re-ingested only when changed. Earlier release days
+  are unavailable to later as-of queries.
+- **Risk analysis** — 5–10 grounded concerns at most, not a forced three. When
+  the model is unavailable, deterministic evidence-derived concerns keep the
+  cockpit usable.
+- **Two database paths, one schema** — hosted Supabase PostgreSQL and a
+  self-contained Docker stack apply the same migrations and use the same API
+  client. No feature depends on a hosted-only service.
 
-## Architecture
+Payroll registers, payslips, and named individual pay are marked sensitive at
+ingestion and read time. They are never embedded, retrieved, sent to a model,
+or rendered in the UI. Aggregate payroll totals remain available for financial
+analysis.
 
-The application follows a modular monolithic architecture using Next.js. The frontend, API endpoints and application services live in one codebase, with ingestion and database responsibilities separated into dedicated modules.
+## Quick start with Docker
 
-```text
-                    Next.js Application
-                            |
-              +-------------+-------------+
-              |                           |
-         Executive UI                API Route Handlers
-                                          |
-                                   Domain Services
-                                          |
-           +--------------+---------------+--------------+
-           |              |               |              |
-        Evidence       Employee          Risk         Temporal
-       & Retrieval      Agents        Intelligence     Queries
-           |              |               |              |
-           +--------------+---------------+--------------+
-                                          |
-                                PostgreSQL + pgvector
-                                          |
-                                  Ingestion Pipeline
-                                          |
-                              Day-wise Source Documents
-```
-
-### Data Layer
-
-PostgreSQL is the primary relational data store. pgvector supports semantic retrieval of relevant evidence.
-
-The data model separates source documents, source locations, entities, claims, evidence, conflicts, assumptions and temporal availability. This allows answers to be traced back to their underlying records rather than relying on generated summaries alone.
-
-Supabase PostgreSQL is the intended hosted database target. For local execution and evaluation, the project uses a self-contained PostgreSQL + pgvector Docker environment. A hosted Supabase project is not required to run the application.
-
-## Technology Stack
-
-| Layer | Technology |
-|---|---|
-| Application | Next.js, React, TypeScript |
-| UI | Tailwind CSS |
-| API | Next.js Route Handlers, Node.js runtime |
-| Database | PostgreSQL |
-| Vector Search | pgvector |
-| Hosted Database Option | Supabase PostgreSQL |
-| AI & Retrieval | LLM-assisted retrieval and evidence-grounded response generation |
-| Testing | Vitest |
-| Local Environment | Docker Compose |
-
-## Project Structure
-
-```text
-src/
-├── app/                     # Pages, layouts and API routes
-├── components/              # Reusable UI components
-├── lib/
-│   ├── ai/                  # LLM integration and response generation
-│   ├── agents/              # Employee agent profiles and runtime
-│   ├── evidence/            # Evidence, claims and source handling
-│   ├── ingestion/            # Document parsing and processing
-│   ├── risks/               # Risk identification and ranking
-│   ├── temporal/            # Point-in-time query handling
-│   └── database/            # Database access and queries
-└── types/                   # Shared TypeScript types
-
-supabase/
-└── migrations/              # Database schema and extensions
-
-scripts/                     # Ingestion, seeding and utility scripts
-tests/
-├── unit/
-├── integration/
-└── evaluation/
-
-ARCHITECTURE.md
-ASSUMPTIONS.md
-TRANSCRIPT_NOTES.md
-DECISIONS.md
-AI_LOG.md
-
-Dockerfile
-docker-compose.yml
-```
-
-## Running Locally
-
-The project is designed so that reviewers can run it without creating
-external accounts or configuring environment variables. The local stack
-uses the same PostgreSQL extensions as the hosted Supabase database.
-
-**Prerequisite:** Docker with Docker Compose support, running on the machine.
+Prerequisite: Docker with Docker Compose support.
 
 ```bash
 docker compose up --build
 ```
 
-This single command:
+Open **http://localhost:3000**.
 
-1. Build the Next.js application.
-2. Start the local PostgreSQL database with pgvector.
-3. Wait for the database health check.
-4. Apply the committed database schema on first database startup.
-5. Start the application.
+The stack starts PostgreSQL with pgvector, applies every migration, seeds the
+reviewed baseline, starts the Next.js app, then runs the bootstrap job:
+`sync → embed → analyze`. Bootstrap is safe to repeat: ingestion skips unchanged
+files, embeddings only fill gaps, and analysis updates concerns by fingerprint.
 
-Once running, open:
-
-**http://localhost:3000**
-
-No Supabase account, API key, `.env.local` file, manual database setup or
-separate migration command is required for the local Docker workflow. The
-schema is initialized only when the database volume is first created.
-
-To stop the application, use `Ctrl+C`. To stop and remove the local
-containers:
+Data lives in the named volume `veloxa-postgres` and survives rebuilds:
 
 ```bash
-docker compose down
+docker compose down      # stop, keep data
+docker compose down -v   # stop and delete the local database
 ```
 
-To also delete the local database volume and start with an empty database:
+### Ports already in use?
+
+The host ports are configurable:
 
 ```bash
-docker compose down -v
+VELOXA_APP_PORT=3100 \
+VELOXA_API_PORT=3101 \
+VELOXA_DB_PORT=55432 \
+docker compose up --build
 ```
 
-## Hosted Supabase deployment
+Then open **http://localhost:3100**. The app container still reaches PostgREST
+through the internal `gateway` service; only the host mappings change.
 
-The migration in
-[`supabase/migrations/20261117000000_initial_schema.sql`](supabase/migrations/20261117000000_initial_schema.sql)
-is now the shared schema for local PostgreSQL and the Supabase project.
-Apply it to Supabase with either option below.
+### Without an AI key
 
-### Option A: Supabase SQL Editor
+The stack runs without `GEMINI_API_KEY`. In that mode it uses:
 
-Open the project's SQL Editor, paste the complete migration file, and run
-it once:
+- deterministic local embeddings for retrieval,
+- a deterministic chat fallback for employee agents,
+- deterministic evidence-derived concerns when analysis is unavailable.
 
-<https://supabase.com/dashboard/project/ccjbbuvhprwbmmdvkydr/sql/new>
+With `GEMINI_API_KEY` set in `.env.local`, Gemini handles chat, risk analysis,
+and embeddings (1536 dimensions). If Gemini is rate-limited, each path falls
+back instead of failing the request.
 
-### Option B: Supabase CLI
+## Hosted Supabase
 
-From the repository root, after installing and authenticating the Supabase
-CLI:
+The Docker database and a hosted Supabase project use the same migrations in
+`supabase/migrations/`:
+
+```text
+20261117000000_initial_schema.sql
+20261117210000_ingestion_and_analysis.sql
+20261117230000_evidence_safety.sql
+```
+
+Apply all three, in order, with either the Supabase SQL Editor or the CLI:
 
 ```bash
-supabase login
-supabase link --project-ref ccjbbuvhprwbmmdvkydr
+supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 ```
 
-For local hosted-database testing, copy `.env.example` to `.env.local`,
-then fill in the real values:
-
-```bash
-cp .env.example .env.local
-```
-
-For deployment, configure the same variables in the deployment provider:
-`DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `NEXT_PUBLIC_APP_URL`. Server-side
-database routes also require `SUPABASE_SECRET_KEY`.
-Deploy this Next.js application to a Node-compatible host such as
-   Vercel. The provider's deployment URL is the deployed link to share.
-
-`DATABASE_URL` must be a server-only secret. Never put a Supabase
-secret key in client code or expose it as a `NEXT_PUBLIC_*` variable. The
-publishable key is safe for browser use, but database tables still require
-appropriate RLS policies. The `/api/people` route uses the server-only secret
-key and currently returns active rows from `employee_profiles`.
-
-### Supabase key migration
-
-Supabase has replaced the legacy `anon` and `service_role` labels with
-publishable and secret keys. Use `sb_publishable_...` as
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `sb_secret_...` as
-`SUPABASE_SECRET_KEY`. Existing projects may temporarily use
-`SUPABASE_SERVICE_ROLE_KEY` with the server route, but new deployments should
-use the secret-key variable.
-
-The local Docker smoke-test runtime is functional without an external LLM
-API key. AI-provider integration is planned separately and is not a
-prerequisite for starting the current foundation app.
-
-### Loading the initial Day 1 data
-
-The committed UI data is a reviewed Day 1 evidence pack, not production
-database data. To load it into the normalized Supabase tables, first apply
-the migration (including its idempotency indexes), then run:
-
-```bash
-npx pnpm@10.19.0 install
-npm run seed:supabase
-```
-
-### Data-room ingestion and live analysis
-
-The committed `Veloxa_Hackathon_Release_Packs/` directory is the current
-source of truth for the demo. It contains the Day 1–Day 4 transcripts,
-documents, spreadsheets, emails, Jira export, git history, incidents and
-HR/finance records. The application does not treat the hand-authored seed
-fixtures as live analysis.
-
-Apply the additional ingestion migration after the initial schema:
-
-```text
-supabase/migrations/20261117210000_ingestion_and_analysis.sql
-```
-
-Then configure `VELOXA_DATA_ROOM_PATH` when the data-room is outside the
-repository. The default is the repository's
-`Veloxa_Hackathon_Release_Packs` directory. The trusted server endpoint
-`POST /api/sync` scans supported files, hashes them, skips unchanged files,
-and extracts bounded evidence chunks. Embeddings are deliberately a separate
-operation because Gemini free-tier token quotas can reject a large first
-indexing pass.
-It records each run in `ingestion_runs` and each source file in
-`source_documents`; it never creates another copy for a refresh of the same
-file.
-
-After synchronization, `POST /api/analyze` sends only the latest bounded,
-non-sensitive embedded evidence to Gemini with a strict JSON schema. The
-response is validated with Zod, linked to its supporting evidence, and
-upserted using a deterministic fingerprint derived from the normalized issue
-and supporting evidence IDs. Refreshing the same data therefore updates the
-existing risk instead of creating duplicates.
-
-Call `POST /api/embed` repeatedly to process a small quota-safe batch of
-pending evidence vectors. It reports remaining work and returns a retryable
-response when the provider quota is exhausted. The existing
-`npm run embed:supabase` script can also process the pending queue.
-
-These are separate trusted server operations so they can later be called by
-a scheduler, webhook worker or a single refresh orchestrator without exposing
-Supabase or Gemini credentials to the browser. The browser only reads the
-normalized tables and pgvector retrieval results.
-
-The seed is safe to run repeatedly. It upserts 19 employee profiles and agent
-personas, source documents and evidence citations, answer runs and claims, and
-risk items with their evidence links. It does not invent raw source material,
-salary data, embeddings, or November activity. Those require ingestion from
-the corresponding source files and should be added through a separate
-ingestion job.
-
-The seed uses `SUPABASE_SECRET_KEY` from `.env.local`; it must never be
-exposed in browser code. The people directory now queries `/api/people`, which
-reads `employee_profiles` from Supabase and falls back to the reviewed static
-data only when the table is empty or the request fails.
-
-### pgvector and RAG retrieval
-
-The database schema uses `pgvector` in `evidence_items.embedding` with
-1536-dimensional vectors. The migration also creates an HNSW cosine index and
-the `match_evidence` SQL function. The application retrieval path is:
-
-```text
-question
-  -> OpenAI-compatible embedding endpoint
-  -> /api/retrieve
-  -> match_evidence(query_embedding)
-  -> evidence chunks + source citations
-  -> future LLM answer generation
-```
-
-After applying the latest migration in the Supabase SQL Editor, configure a
-Gemini API key from Google AI Studio in `.env.local`:
+For a hosted deployment, copy `.env.example` to `.env.local` and set:
 
 ```env
-GEMINI_API_KEY=...
-EMBEDDINGS_MODEL=gemini-embedding-001
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_...
+NEXT_PUBLIC_APP_URL=https://your-app.example.com
 ```
 
-The embedding adapter calls Gemini's `batchEmbedContents` endpoint, uses
-`RETRIEVAL_DOCUMENT` for stored evidence and `RETRIEVAL_QUERY` for questions,
-and requests 1536 dimensions to match `vector(1536)`. A ChatGPT/OpenAI key is
-not required.
+`SUPABASE_SECRET_KEY` is server-only and must never be exposed as a
+`NEXT_PUBLIC_*` variable. `NEXT_PUBLIC_SUPABASE_URL` remains supported as a
+fallback for existing deployments, but new deployments should use
+`SUPABASE_URL`. The app does not need a browser-side Supabase client.
 
-Then create vectors for the seeded evidence:
+Seed and index a hosted database:
 
 ```bash
-npm run embed:supabase
+pnpm seed:supabase
+pnpm embed:supabase
 ```
 
-This command embeds only non-sensitive evidence with a null embedding. It is
-safe to repeat and never embeds salary or other rows marked sensitive. The
-retrieval endpoint can then be tested with:
+Then call the trusted server operations, or run them from a scheduler/worker:
 
 ```bash
-curl -X POST http://localhost:3000/api/retrieve \
-  -H 'content-type: application/json' \
-  -d '{"query":"What is the current ARR?"}'
+curl -X POST https://your-app.example.com/api/sync
+curl -X POST https://your-app.example.com/api/embed
+curl -X POST https://your-app.example.com/api/analyze
 ```
 
-This is the retrieval half of RAG. It deliberately does not call an LLM or
-write generated answers into the evidence store yet. The next layer should
-send only the returned, cited chunks to an LLM adapter and persist the
-result in `answer_runs`.
+A local run against hosted Supabase works the same way: fill in `.env.local`,
+then `pnpm dev`.
+
+## API surface
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/dashboard` | Overview metrics, latest sources, top three concerns |
+| `GET /api/risks` | All open/watch concerns, deduplicated and ranked |
+| `GET /api/risks/[riskKey]` | One concern with short evidence extracts |
+| `GET /api/people` | Directory-safe employee profiles |
+| `POST /api/people/[employeeKey]/chat` | Human-style employee answer with safe context |
+| `POST /api/retrieve` | Semantic search returning deduplicated snippets |
+| `POST /api/sync` | Incremental release-pack ingestion |
+| `POST /api/embed` | Quota-safe embedding batches |
+| `POST /api/analyze` | Grounded concern analysis, 5–10 concerns maximum |
+
+`sync`, `embed`, and `analyze` are trusted server operations. They are not
+protected by a public login in this hackathon build, so do not expose them as
+unauthenticated production endpoints without adding access control.
+
+## How evidence is made safe
+
+The raw evidence store keeps source text for traceability. Presentation is a
+separate layer in `src/lib/evidence/snippet.ts`:
+
+1. Payroll registers, payslips, and named individual pay are detected and
+   returned as `sensitive` with no summary.
+2. CSV exports, metric tables, and multi-row dumps are rejected.
+3. One or two short, self-contained sentences are extracted with the source and
+   date. The hard limit is 300 characters.
+4. Duplicate facts from a curated citation and the ingested file are merged.
+5. Model output passes the same guard: no pay, no raw dump, no record or
+   retrieval jargon.
+
+The shared prompt rules live in `src/lib/ai/prompts.ts`. They instruct the model
+to answer in plain language, never quote a chunk or table, never reveal
+individual pay, and never invent a number that is not in the safe context.
+
+## Development
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Quality checks:
+
+```bash
+pnpm test               # Vitest: safety, snippet, ranking, refusal
+pnpm exec tsc --noEmit
+pnpm lint
+pnpm build
+```
+
+The Docker image runs the production build:
+
+```bash
+docker build --target runner -t veloxa-cockpit .
+```
+
+## Project structure
+
+```text
+src/
+├── app/                     # Pages and API route handlers
+│   ├── api/                 # dashboard, risks, people, retrieve, sync, embed, analyze
+│   ├── people/              # employee directory
+│   └── risks/               # concern register and detail pages
+├── components/              # Dashboard, RisksView, RiskDetailView, PeopleDirectory
+└── lib/
+    ├── ai/                  # Gemini adapter and shared safety prompts
+    ├── analysis/            # concern schema, ranking, fallback descriptions
+    ├── evidence/            # snippet extraction, dedupe, sensitivity, chat guard
+    ├── ingestion/           # file discovery, parsing, chunking
+    ├── rag/                 # embeddings and retrieval
+    └── supabase/            # trusted server client
+
+supabase/migrations/         # shared schema for Docker and hosted Supabase
+scripts/                     # seed, embed, Docker migration and bootstrap jobs
+tests/unit/                  # Vitest safety and ranking tests
+docker/nginx.conf            # /rest/v1 gateway for the Supabase JS client
+```
 
 ## Documentation
 
-| File | Description |
+| File | Contents |
 |---|---|
-| `ARCHITECTURE.md` | Application architecture, data model, ingestion pipeline and technical design |
-| `ASSUMPTIONS.md` | Explicit assumptions, their rationale and confidence |
-| `TRANSCRIPT_NOTES.md` | Transcript interpretation, ambiguous statements and source conflicts |
-| `DECISIONS.md` | Architectural and product decisions, alternatives and trade-offs |
-| `AI_LOG.md` | AI-assisted work, human review, corrections and accepted outcomes |
-| `supabase/migrations/` | Shared PostgreSQL/pgvector schema |
-| `.env.example` | Safe template for hosted database and deployment variables |
+| `ARCHITECTURE.md` | Application architecture, data model, ingestion and retrieval |
+| `ASSUMPTIONS.md` | Explicit assumptions and confidence |
+| `TRANSCRIPT_NOTES.md` | Transcript interpretation and source conflicts |
+| `DECISIONS.md` | Product and technical decisions and trade-offs |
+| `AI_LOG.md` | AI-assisted work, review, and corrections |
+| `.env.example` | Hosted and local configuration template |
 
-## Development Status
+## Scope
 
-**Day 1 — Architecture and foundation**
-
-- Reviewed the supplied Day 1 source materials and identified initial information conflicts.
-- Established the Next.js modular application architecture.
-- Selected PostgreSQL and pgvector for structured storage and semantic retrieval.
-- Defined the initial evidence, entity, claim, conflict and temporal data model.
-- Established the 14-employee agent scope from the supplied employee master.
-- Defined a Docker-based, self-contained local evaluation environment.
-- Documented initial assumptions, transcript observations and architectural decisions.
-
-Implementation will progress incrementally as additional release packs become available. Features will be identified as complete only after implementation and testing.
-
-## Project Scope
-
-This is a fictional company intelligence system built exclusively around the materials supplied for the Hiyaku Systems hackathon. Company information, employee details and generated assumptions are treated as fictional project data.
+This is a fictional company intelligence system built exclusively around the
+materials supplied for the Hiyaku Systems hackathon. Company information,
+employee details, and generated assumptions are fictional project data.
 
 ---
 
-**Veloxa CXO Cockpit**  Hiyaku Systems Individual Hackathon · November 2026
+**Veloxa CXO Cockpit** · Hiyaku Systems Individual Hackathon · November 2026

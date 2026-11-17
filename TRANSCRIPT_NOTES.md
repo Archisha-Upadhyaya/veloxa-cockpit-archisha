@@ -295,3 +295,28 @@ The source files do not provide recording dates. Do not invent them.
     earlier status as historical evidence.
 -   Do not turn a plausible explanation into a resolved conflict without
     supporting evidence.
+
+## Day 2 voice notes
+
+### T6a — CEO voice note (17 Nov 2026)
+
+-   **Source:** `Day2_Tue_17Nov/transcripts/T6a_CEO_Voice_Note.docx`.
+-   **Wording:** "When I open it, it should just tell me what to worry
+    about. Top three."
+-   **Interpretation:** The opening screen must answer one question without
+    a search: what needs attention now. "Top three" is a presentation
+    constraint, not permission to discard the fourth or fifth concern.
+-   **Change made:** The overview now leads with a three-item "Open
+    concerns" list, ranked by severity, then likelihood, then most
+    recently reviewed. Each item opens its own detail page with short
+    evidence and a date.
+-   **Written pushback:** The analysis keeps 5–10 live concerns per run
+    (10 maximum, no forced three). The overview shows the three that
+    matter most; the Risks tab shows every concern, so nothing is hidden
+    just because it did not fit on the opening screen.
+-   **Why not "three newest":** Recency alone would let a loud but minor
+    issue push out a critical one. Severity and likelihood come first;
+    recency breaks ties. The sort can be changed if the CEO prefers newest
+    first.
+-   **Confidence:** High on the UI requirement; medium on whether the CEO
+    wants severity-ranked or newest-first ordering.

@@ -2,15 +2,20 @@ FROM node:22-alpine AS dependencies
 
 WORKDIR /app
 RUN corepack enable
+RUN apk add --no-cache poppler-utils
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
-FROM node:22-alpine AS builder
+# Small utility image for one-off seed/sync/embed scripts. It keeps the same
+# lockfile as the app but does not need a Next.js production build.
+FROM dependencies AS tools
 
-WORKDIR /app
-RUN corepack enable
-COPY --from=dependencies /app/node_modules ./node_modules
+COPY . .
+CMD ["./node_modules/.bin/tsx", "scripts/seed-supabase.ts"]
+
+FROM dependencies AS builder
+
 COPY . .
 RUN pnpm build
 
@@ -20,7 +25,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs \
+# PDF ingestion shells out to pdftotext at request time.
+RUN apk add --no-cache poppler-utils \
+  && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
