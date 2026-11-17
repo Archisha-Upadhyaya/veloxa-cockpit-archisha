@@ -1,3 +1,5 @@
+import { GROUNDED_ANSWER_SYSTEM } from "@/lib/ai/prompts";
+
 type GeminiResponse = {
   candidates?: Array<{
     content?: { parts?: Array<{ text?: string }> };
@@ -13,11 +15,15 @@ function required(name: string) {
 
 export async function generateGroundedAnswer(
   prompt: string,
-  systemInstruction = "You are a grounded employee context assistant. Answer only from the supplied records. Never invent current work, opinions, dates, or commitments. If the records do not answer the question, say exactly what is unknown and name the missing record type. Keep answers to 2-4 concise sentences.",
+  systemInstruction = GROUNDED_ANSWER_SYSTEM,
+  options: { maxOutputTokens?: number; timeoutMs?: number } = {},
 ) {
   const model = process.env.GEMINI_CHAT_MODEL ?? "gemini-3.8-flash";
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? 12_000,
+  );
   let response: Response;
 
   try {
@@ -35,7 +41,10 @@ export async function generateGroundedAnswer(
           ],
         },
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 220 },
+        generationConfig: {
+          temperature: 0.15,
+          maxOutputTokens: options.maxOutputTokens ?? 320,
+        },
       }),
         signal: controller.signal,
       },
