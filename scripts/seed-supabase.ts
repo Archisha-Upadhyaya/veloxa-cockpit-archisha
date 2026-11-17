@@ -5,7 +5,7 @@ import {
   CITATIONS,
   PEOPLE,
   RISKS,
-} from "../src/lib/data";
+} from "./seed-data";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SECRET_KEY;

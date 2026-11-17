@@ -210,6 +210,48 @@ npx pnpm@10.19.0 install
 npm run seed:supabase
 ```
 
+### Data-room ingestion and live analysis
+
+The committed `Veloxa_Hackathon_Release_Packs/` directory is the current
+source of truth for the demo. It contains the Day 1–Day 4 transcripts,
+documents, spreadsheets, emails, Jira export, git history, incidents and
+HR/finance records. The application does not treat the hand-authored seed
+fixtures as live analysis.
+
+Apply the additional ingestion migration after the initial schema:
+
+```text
+supabase/migrations/20261117210000_ingestion_and_analysis.sql
+```
+
+Then configure `VELOXA_DATA_ROOM_PATH` when the data-room is outside the
+repository. The default is the repository's
+`Veloxa_Hackathon_Release_Packs` directory. The trusted server endpoint
+`POST /api/sync` scans supported files, hashes them, skips unchanged files,
+and extracts bounded evidence chunks. Embeddings are deliberately a separate
+operation because Gemini free-tier token quotas can reject a large first
+indexing pass.
+It records each run in `ingestion_runs` and each source file in
+`source_documents`; it never creates another copy for a refresh of the same
+file.
+
+After synchronization, `POST /api/analyze` sends only the latest bounded,
+non-sensitive embedded evidence to Gemini with a strict JSON schema. The
+response is validated with Zod, linked to its supporting evidence, and
+upserted using a deterministic fingerprint derived from the normalized issue
+and supporting evidence IDs. Refreshing the same data therefore updates the
+existing risk instead of creating duplicates.
+
+Call `POST /api/embed` repeatedly to process a small quota-safe batch of
+pending evidence vectors. It reports remaining work and returns a retryable
+response when the provider quota is exhausted. The existing
+`npm run embed:supabase` script can also process the pending queue.
+
+These are separate trusted server operations so they can later be called by
+a scheduler, webhook worker or a single refresh orchestrator without exposing
+Supabase or Gemini credentials to the browser. The browser only reads the
+normalized tables and pgvector retrieval results.
+
 The seed is safe to run repeatedly. It upserts 19 employee profiles and agent
 personas, source documents and evidence citations, answer runs and claims, and
 risk items with their evidence links. It does not invent raw source material,
