@@ -13,7 +13,11 @@ function getRequiredEnvironmentVariable(name: string) {
  * The legacy service-role name remains supported while projects migrate.
  */
 export function createServerSupabaseClient() {
-  const url = getRequiredEnvironmentVariable("NEXT_PUBLIC_SUPABASE_URL");
+  // SUPABASE_URL is server-only and works at runtime in Docker. The
+  // NEXT_PUBLIC_ fallback keeps existing hosted deployments working.
+  const url =
+    process.env.SUPABASE_URL ??
+    getRequiredEnvironmentVariable("NEXT_PUBLIC_SUPABASE_URL");
   const key =
     process.env.SUPABASE_SECRET_KEY ??
     process.env.SUPABASE_SERVICE_ROLE_KEY;

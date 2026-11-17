@@ -1,110 +1,202 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateGroundedAnswer } from "@/lib/ai/gemini";
-import { embedTexts } from "@/lib/rag/embeddings";
+import { EMPLOYEE_CHAT_SYSTEM } from "@/lib/ai/prompts";
+import { defaultMatchThreshold, embedTexts } from "@/lib/rag/embeddings";
+import {
+  dedupeEvidenceSummaries,
+  extractEvidenceSnippet,
+  factToSpeech,
+  friendlySourceTitle,
+  humanizeLocator,
+  isCompensationQuestion,
+  isGreeting,
+  isSensitiveEvidence,
+  safeFacts,
+  sanitizeEmployeeAnswer,
+} from "@/lib/evidence/snippet";
 
 type ChatRequest = { question?: string };
 type EvidenceRow = {
   id: string;
   evidence_text: string;
-  source_locations: { locator: string; source_documents: { title: string } } | null;
+  source_locations:
+    | {
+        locator: string;
+        source_documents: { title: string; release_day?: string | null } | null;
+      }
+    | null;
 };
+type SafeEvidence = {
+  id: string;
+  summary: string;
+  source: string;
+  locator: string;
+  dateLabel?: string;
+  kind: string;
+};
+
+function toSafeEvidence(evidence: EvidenceRow[], question: string) {
+  const seen = new Set<string>();
+  const safe: SafeEvidence[] = [];
+  for (const item of evidence) {
+    const rawText = item.evidence_text ?? "";
+    if (!rawText || isSensitiveEvidence(rawText)) continue;
+    const sourceTitle =
+      item.source_locations?.source_documents?.title ?? "Source";
+    const locator = item.source_locations?.locator ?? "";
+    const snippet = extractEvidenceSnippet(rawText, {
+      context: question,
+      sourceTitle,
+      locator,
+    });
+    if (snippet.sensitive || !snippet.summary) continue;
+    if (seen.has(snippet.summary)) continue;
+    seen.add(snippet.summary);
+    safe.push({
+      id: item.id,
+      summary: snippet.summary,
+      source: friendlySourceTitle(sourceTitle),
+      locator: humanizeLocator(locator),
+      dateLabel:
+        snippet.dateLabel ??
+        item.source_locations?.source_documents?.release_day ??
+        undefined,
+      kind: snippet.kind,
+    });
+    if (safe.length >= 10) break;
+  }
+  return dedupeEvidenceSummaries(safe).slice(0, 5);
+}
 
 function inferWithoutModel(
   question: string,
   name: string,
-  evidence: EvidenceRow[],
+  safeEvidence: SafeEvidence[],
   recordedAnswer?: string,
   groundedFacts: string[] = [],
 ) {
   const normalized = question.toLowerCase();
-  const toSpeech = (fact: string) => {
-    const normalizedFact = fact.replace(/[()"]/g, "").replace(/\s+/g, " ").trim();
-    const wedding = normalizedFact.match(/out for (?:her|his) wedding in ([^;]+); "([^"]+)"/i);
-    if (wedding) {
-      return `I was out for my wedding in ${wedding[1]}, which made that month ${wedding[2]}.`;
-    }
-    const followUp = normalizedFact.match(/Will check and get back on (.+?)\s*[—-]\s*no further record/i);
-    if (followUp) {
-      return `I said I would check and get back on ${followUp[1]}. I do not see a later resolution recorded.`;
-    }
-    return normalizedFact
-      .replace(/^Keeps\b/i, "I keep")
-      .replace(/^Handles\b/i, "I handle")
-      .replace(/^Works\b/i, "I work")
-      .replace(/^Manages\b/i, "I manage")
-      .replace(/^Supports\b/i, "I support");
-  };
-  const cleanExcerpt = (text: string) =>
-    text
-      .replace(/From:.*?(?=To:|Subject:|$)/gi, "")
-      .replace(/To:.*?(?=Subject:|$)/gi, "")
-      .replace(/Subject:.*?(?=\n|$)/gi, "")
-      .replace(/https?:\/\/\S+/g, "")
-      .replace(/\s+/g, " ")
-      .replace(/^["'\s]+|["'\s]+$/g, "")
-      .trim();
-  const excerpts = evidence
-    .slice(0, 3)
-    .map((item) => cleanExcerpt(item.evidence_text))
-    .filter(Boolean);
+  const firstName = name.split(/\s+/)[0];
 
-  if (/(current|currently|working on|doing|task|project)/.test(normalized)) {
-    const usefulFacts = groundedFacts
-      .filter((fact) => !/employee master/i.test(fact))
-      .slice(0, 3);
-    if (usefulFacts.length > 0) {
-      return {
-        answer: usefulFacts.map(toSpeech).join(" "),
-        provenance: "profile_inference",
-      };
-    }
-    if (excerpts.length > 0) {
-      return {
-        answer: `I’m focused on ${excerpts[0].replace(/^.*?(?:team:|summary|key points)\s*/i, "")}.${excerpts[1] ? ` I’m also following up on ${excerpts[1].slice(0, 220)}.` : ""}`,
-        provenance: "evidence_inference",
-      };
-    }
-    if (recordedAnswer && !recordedAnswer.includes("check the Jira")) {
-      return { answer: recordedAnswer, provenance: "recorded_context" };
-    }
+  if (isGreeting(normalized)) {
     return {
-      answer: `${name}'s connected records do not show a recent task update, so I cannot name a current project confidently. That is a missing activity signal, not evidence that no work is happening.`,
-      provenance: "activity_gap",
+      answer: `Hi — good to see you. What's on your mind?`,
+      provenance: "conversation",
     };
   }
 
-  if (/(quit|resign|leave|stay|departure|notice)/.test(normalized)) {
-    const signals = evidence.filter((item) =>
-      /(resign|notice period|departure|leav|exit date|retention|unhappy|frustrat)/i.test(
-        item.evidence_text,
+  if (isCompensationQuestion(normalized)) {
+    return {
+      answer:
+        "That's not something I'd discuss — pay is confidential. If there's an official question, HR would be the right route.",
+      provenance: "policy_refusal",
+    };
+  }
+
+  if (/(quit|resign|leave|stay|departure|notice|last working day)/.test(normalized)) {
+    const personSignals = safeEvidence.filter((item) => {
+      const summary = item.summary.toLowerCase();
+      return (
+        summary.includes(firstName.toLowerCase()) ||
+        summary.includes(name.toLowerCase()) ||
+        /resign|notice|last working day|departure|exit/i.test(summary)
+      );
+    });
+    const resignation = personSignals.find((item) =>
+      /resign|notice|last working day|departure|exit|notice period/i.test(
+        item.summary,
       ),
     );
-    if (signals.length > 0) {
+    if (resignation) {
+      const date =
+        resignation.summary.match(
+          /(?:last working day|exit date)(?: is| will be| of|:)? ([^.;,]+)/i,
+        )?.[1] ??
+        resignation.summary.match(
+          /(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4})/i,
+        )?.[1];
+      if (date) {
+        return {
+          answer: `Yes — I handed in my notice. My last working day is ${date.trim()}, and I'm finishing my handover before I go.`,
+          provenance: "grounded",
+        };
+      }
       return {
-        answer: `I’ve had some pressure around ${signals
-          .slice(0, 2)
-          .map((item) => cleanExcerpt(item.evidence_text))
-          .join(" ")} That may be worth discussing, but it would be unfair to say that means I want to resign without hearing it from me.`,
-        provenance: "evidence_inference",
+        answer:
+          "Yes — I've handed in my notice. I'm finishing my handover before I go.",
+        provenance: "grounded",
       };
     }
+    const recorded = recordedAnswer
+      ? sanitizeEmployeeAnswer(recordedAnswer)
+      : null;
+    if (recorded && /notice|resign|last working day|exit date/i.test(recorded)) {
+      return { answer: recorded, provenance: "recorded_context" };
+    }
     return {
-      answer: `I haven’t said that I want to resign, and there is no direct notice or resignation signal for me in the information available. If you’re concerned about how I’m doing, I’d rather talk about it directly than have my intentions guessed.`,
+      answer:
+        "Nothing has changed on my side. If you've heard otherwise, I'd rather we talk it through directly.",
       provenance: "uncertain_inference",
     };
   }
 
-  if (recordedAnswer && !recordedAnswer.includes("I do not have a recorded answer")) {
-    return { answer: recordedAnswer, provenance: "recorded_context" };
-  }
-  if (excerpts.length > 0) {
+  if (/(current|currently|working on|doing|task|project|busy|week)/.test(normalized)) {
+    // A recorded answer is the closest thing this employee has to a direct
+    // reply. Only fall back to profile facts when they contain real work.
+    if (recordedAnswer) {
+      const cleaned = sanitizeEmployeeAnswer(recordedAnswer);
+      if (cleaned) return { answer: cleaned, provenance: "recorded_context" };
+    }
+    const facts = safeFacts(groundedFacts, 3).filter((fact) =>
+      /\b(?:keep|handle|work|manage|own|lead|run|support|responsible|building|shipping|looking|hardening|running)\b/i.test(
+        fact,
+      ),
+    );
+    if (facts.length > 0) {
+      const first = factToSpeech(facts[0], name);
+      const second = facts[1] ? factToSpeech(facts[1], name) : "";
+      return {
+        answer: [first, second].filter(Boolean).join(" "),
+        provenance: "profile_inference",
+      };
+    }
     return {
-      answer: `From what I’m dealing with, ${excerpts[0]}. I may be missing context here, so I’d rather clarify than present that as the whole picture.`,
-      provenance: "evidence_inference",
+      answer:
+        "I'm mostly heads-down on my team's work right now, and I don't have a clean update beyond that. Ask me again once I've checked where things stand.",
+      provenance: "uncertain_inference",
     };
   }
+
+  if (recordedAnswer) {
+    const cleaned = sanitizeEmployeeAnswer(recordedAnswer);
+    if (cleaned) return { answer: cleaned, provenance: "recorded_context" };
+  }
+
+  const facts = safeFacts(groundedFacts, 2);
+  if (facts.length > 0) {
+    return {
+      answer: factToSpeech(facts[0], name),
+      provenance: "profile_inference",
+    };
+  }
+
+  const personalNote = safeEvidence.find((item) => {
+    const summary = item.summary.toLowerCase();
+    return (
+      summary.includes(firstName.toLowerCase()) ||
+      summary.includes(name.toLowerCase())
+    );
+  });
+  if (personalNote) {
+    return {
+      answer: `The main thing I'd point to is this: ${personalNote.summary}`,
+      provenance: "grounded",
+    };
+  }
+
   return {
-    answer: `I don’t have enough context to answer that honestly. I’d rather say that directly than pretend certainty about what I think or feel.`,
+    answer:
+      "I don't have enough to go on, and I'd rather not guess. Ask me something more specific and I'll tell you what I know.",
     provenance: "uncertain_inference",
   };
 }
@@ -144,57 +236,91 @@ export async function POST(
       groundedFacts?: string[];
     };
     const exchanges = profile.interview ?? [];
-    const match = exchanges.find((exchange) =>
-      question
-        .toLowerCase()
-        .split(/\s+/)
-        .some(
-          (word) =>
-            word.length > 3 &&
-            exchange.question.toLowerCase().includes(word),
+    const questionWords = question
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word.length > 3);
+    const rankedExchanges = exchanges
+      .map((exchange) => ({
+        exchange,
+        score: questionWords.filter((word) =>
+          exchange.question.toLowerCase().includes(word),
+        ).length,
+      }))
+      .sort((left, right) => right.score - left.score);
+    const workQuestion =
+      /(current|currently|working on|doing|task|project|busy|week)/.test(
+        question.toLowerCase(),
+      );
+    let match = rankedExchanges.find((item) => item.score > 0)?.exchange;
+    if (workQuestion) {
+      const workExchanges = exchanges.filter((exchange) =>
+        /(work|working|busy|doing|task|project|team|role|holding|responsib)/i.test(
+          exchange.question,
         ),
-    );
+      );
+      const groundedWork =
+        workExchanges.find((exchange) => exchange.provenance === "grounded") ??
+        workExchanges[0];
+      if (groundedWork) match = groundedWork;
+    }
 
     const persona = data.agent_personas?.[0];
+    const skipRetrieval =
+      isGreeting(question) || isCompensationQuestion(question);
     let relatedEvidence: EvidenceRow[] = [];
-    try {
-      const vectors = await embedTexts(
-        [`${data.display_name}: ${question}`, question],
-        "RETRIEVAL_QUERY",
-      );
-      const retrieved = new Map<string, EvidenceRow>();
-      for (const vector of vectors) {
-        const result = await supabase.rpc("match_evidence", {
-          query_embedding: vector,
-          match_threshold: 0.42,
-          match_count: 6,
-        });
-        if (result.error) throw new Error(result.error.message);
-        for (const item of (result.data ?? []) as EvidenceRow[]) {
-          retrieved.set(item.id, item);
+
+    if (!skipRetrieval) {
+      try {
+        const vectors = await embedTexts(
+          [`${data.display_name}: ${question}`, question],
+          "RETRIEVAL_QUERY",
+        );
+        const retrieved = new Map<string, EvidenceRow>();
+        for (const vector of vectors) {
+          const result = await supabase.rpc("match_evidence", {
+            query_embedding: vector,
+            match_threshold: Math.min(defaultMatchThreshold(), 0.42),
+            match_count: 8,
+          });
+          if (result.error) throw new Error(result.error.message);
+          for (const item of (result.data ?? []) as EvidenceRow[]) {
+            retrieved.set(item.id, item);
+          }
         }
+        relatedEvidence = [...retrieved.values()];
+      } catch (error) {
+        console.error("Semantic employee evidence retrieval failed", error);
+        const fallback = await supabase
+          .from("evidence_items")
+          .select(
+            "id, evidence_text, source_locations(locator, source_documents(title, release_day))",
+          )
+          .eq("is_sensitive", false)
+          .ilike("evidence_text", `%${data.display_name}%`)
+          .limit(12);
+        if (fallback.error) throw new Error(fallback.error.message);
+        relatedEvidence = (fallback.data ?? []) as unknown as EvidenceRow[];
       }
-      relatedEvidence = [...retrieved.values()];
-    } catch (error) {
-      console.error("Semantic employee evidence retrieval failed", error);
-      const fallback = await supabase
-        .from("evidence_items")
-        .select(
-          "id, evidence_text, source_locations(locator, source_documents(title))",
-        )
-        .eq("is_sensitive", false)
-        .ilike("evidence_text", `%${data.display_name}%`)
-        .limit(12);
-      if (fallback.error) throw new Error(fallback.error.message);
-      relatedEvidence = (fallback.data ?? []) as unknown as EvidenceRow[];
     }
+
+    const safeEvidence = toSafeEvidence(relatedEvidence, question);
+    const groundedFacts = safeFacts(profile.groundedFacts ?? [], 5);
+    const relevantExchanges = rankedExchanges
+      .filter((item) => item.score > 0)
+      .slice(0, 3)
+      .map((item) => {
+        const cleaned = sanitizeEmployeeAnswer(item.exchange.answer);
+        return cleaned ? { ...item.exchange, answer: cleaned } : null;
+      })
+      .filter((exchange): exchange is NonNullable<typeof exchange> => exchange !== null);
 
     const context = JSON.stringify({
       employee: {
         name: data.display_name,
         title: data.role_title,
         department: data.department,
-        profile: data.profile,
+        groundedFacts,
       },
       persona: persona
         ? {
@@ -203,11 +329,10 @@ export async function POST(
             perspectiveRules: persona.perspective_rules,
           }
         : null,
-      recordedInterviewAnswers: exchanges,
-      relatedEvidence: relatedEvidence.map((item) => ({
-        id: item.id,
-        text: item.evidence_text,
-        source: `${item.source_locations?.source_documents.title ?? "Unknown source"} · ${item.source_locations?.locator ?? ""}`,
+      recordedAnswers: relevantExchanges,
+      shortNotes: safeEvidence.map((item) => ({
+        note: item.summary,
+        from: item.source,
       })),
     });
 
@@ -215,24 +340,30 @@ export async function POST(
     let provenance = "grounded";
     if (process.env.GEMINI_API_KEY) {
       try {
-        answer = await generateGroundedAnswer(
-          `You are speaking as ${data.display_name}, a real human employee in a private conversation with the CEO.
-Question from the CEO: ${question}
+        const generated = await generateGroundedAnswer(
+          `You are ${data.display_name}, the ${data.role_title} in ${data.department}. The CEO has just asked you:
+"${question}"
 
-Connected employee profile, recorded answers, and retrieved evidence:
+What you know (private notes — never read this out, never mention it as a source):
 ${context}
 
-Answer rules:
-- Answer naturally in first person, as this employee—not as an AI, analyst, database, or evidence system.
-- Never claim a task, feeling, intention, or current activity as a fact unless a record supports it.
-- You may make a clearly labeled inference from multiple records. Use language such as "I would read that as...", "the records suggest...", or "I cannot say that for certain, but...".
-- For questions like whether I want to quit, infer only from resignation/notice records, direct statements, recurring concerns, or relevant events. Do not equate stress, disagreement, or an evidence gap with intent to resign.
-- For current-work questions, use Jira, git, incident, email, launch, or project evidence when present; summarize the most recent relevant activity and its date.
-- If evidence is weak, answer conversationally with the best-supported interpretation and state the uncertainty in ordinary human language. Do not say "connected records", "retrieved evidence", "the corpus", "the system", or tell the CEO to add another export.
-- Keep the answer to 3-6 concise sentences and mention the supporting source type when useful.`,
-          "You are an evidence-grounded employee perspective assistant. Preserve the distinction between recorded fact and inference. Speak naturally, do not invent, and do not use canned no-visibility refusals when a cautious inference is possible.",
+Reply as ${data.display_name} would in a private conversation.
+- Answer the actual question first, in 1-3 short sentences.
+- Use contractions and ordinary spoken language.
+- If the notes do not answer it, say so plainly: "I'm not sure", "I'd have to check", "I haven't heard that".
+- Pay is confidential. Never discuss salaries, payroll rows, deductions, or anyone's pay.
+- Never quote or describe tables, spreadsheets, file names, chunk numbers, or long extracts.
+- Do not mention records, evidence, data, the corpus, the system, or being an agent.
+- Do not talk about another employee's private situation unless it is directly part of your own role and needed to answer.`,
+          EMPLOYEE_CHAT_SYSTEM,
+          { maxOutputTokens: 300, timeoutMs: 15_000 },
         );
-        provenance = relatedEvidence.length > 0 ? "grounded_inference" : "profile_inference";
+        const cleaned = sanitizeEmployeeAnswer(generated);
+        if (cleaned) {
+          answer = cleaned;
+          provenance =
+            safeEvidence.length > 0 ? "grounded_inference" : "profile_inference";
+        }
       } catch (error) {
         console.error("Gemini employee answer failed; using evidence inference", error);
       }
@@ -241,9 +372,9 @@ Answer rules:
       const fallback = inferWithoutModel(
         question,
         data.display_name,
-        relatedEvidence,
+        safeEvidence,
         match?.answer,
-        profile.groundedFacts ?? [],
+        groundedFacts,
       );
       answer = fallback.answer;
       provenance = fallback.provenance;
@@ -259,7 +390,7 @@ Answer rules:
       response: {
         answer,
         provenance,
-        refs: match?.refs ?? relatedEvidence.map((item) => item.id),
+        refs: safeEvidence.map((item) => item.id),
       },
       knownTopics: persona?.known_topics ?? [],
     });

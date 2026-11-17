@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { embedTexts } from "@/lib/rag/embeddings";
+import { isSensitiveEvidence } from "@/lib/evidence/snippet";
 
 const BATCH_SIZE = 8;
 
@@ -20,11 +21,33 @@ export async function POST() {
   }
 
   try {
+    const sensitiveIds = pending.data
+      .filter((item) => isSensitiveEvidence(item.evidence_text))
+      .map((item) => item.id);
+    if (sensitiveIds.length > 0) {
+      const marked = await supabase
+        .from("evidence_items")
+        .update({ is_sensitive: true, embedding: null })
+        .in("id", sensitiveIds);
+      if (marked.error) throw new Error(marked.error.message);
+    }
+    const safeItems = pending.data.filter(
+      (item) => !isSensitiveEvidence(item.evidence_text),
+    );
+    if (safeItems.length === 0) {
+      return Response.json({
+        embedded: 0,
+        remaining: BATCH_SIZE,
+        complete: false,
+        skipped_sensitive: sensitiveIds.length,
+      });
+    }
+
     const vectors = await embedTexts(
-      pending.data.map((item) => item.evidence_text),
+      safeItems.map((item) => item.evidence_text),
       "RETRIEVAL_DOCUMENT",
     );
-    for (const [index, item] of pending.data.entries()) {
+    for (const [index, item] of safeItems.entries()) {
       const saved = await supabase
         .from("evidence_items")
         .update({ embedding: vectors[index] })
@@ -37,9 +60,10 @@ export async function POST() {
       .is("embedding", null)
       .eq("is_sensitive", false);
     return Response.json({
-      embedded: pending.data.length,
+      embedded: safeItems.length,
       remaining: remaining.count ?? 0,
       complete: (remaining.count ?? 0) === 0,
+      skipped_sensitive: sensitiveIds.length,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Embedding failed.";

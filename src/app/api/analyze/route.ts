@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { analyzeEvidence, filterEvidenceAsOf, riskFingerprint } from "@/lib/analysis/risk";
-import { embedTexts } from "@/lib/rag/embeddings";
+import { defaultMatchThreshold, embedTexts } from "@/lib/rag/embeddings";
+import { isSensitiveEvidence } from "@/lib/evidence/snippet";
 
 type EvidenceRow = {
   evidence_id: string;
@@ -18,7 +19,7 @@ async function loadAnalysisEvidence(
   for (const vector of vectors) {
     const result = await supabase.rpc("match_evidence", {
       query_embedding: vector,
-      match_threshold: 0.48,
+      match_threshold: Math.min(defaultMatchThreshold(), 0.48),
       match_count: 8,
       as_of: asOf,
     });
@@ -26,7 +27,11 @@ async function loadAnalysisEvidence(
       if (!result.error.message.includes("match_evidence")) throw new Error(result.error.message);
       break;
     }
-    for (const row of (result.data ?? []) as EvidenceRow[]) retrieved.set(row.evidence_id, row);
+    for (const row of (result.data ?? []) as EvidenceRow[]) {
+      if (!isSensitiveEvidence(row.evidence_text)) {
+        retrieved.set(row.evidence_id, row);
+      }
+    }
   }
   if (retrieved.size > 0) return [...retrieved.values()];
 
@@ -45,12 +50,14 @@ async function loadAnalysisEvidence(
     id: string;
     evidence_text: string;
     source_locations: Array<{ locator: string; source_documents: Array<{ title: string }> }>;
-  }>).map((item) => ({
-    evidence_id: item.id,
-    evidence_text: item.evidence_text,
-    source_title: item.source_locations?.[0]?.source_documents?.[0]?.title ?? "Unknown source",
-    locator: item.source_locations?.[0]?.locator ?? "",
-  }));
+  }>)
+    .filter((item) => !isSensitiveEvidence(item.evidence_text))
+    .map((item) => ({
+      evidence_id: item.id,
+      evidence_text: item.evidence_text,
+      source_title: item.source_locations?.[0]?.source_documents?.[0]?.title ?? "Unknown source",
+      locator: item.source_locations?.[0]?.locator ?? "",
+    }));
 }
 
 export async function POST() {
@@ -81,7 +88,16 @@ export async function POST() {
       text: item.evidence_text,
       source: `${item.source_title} · ${item.locator}`,
     }));
-    const risks = await analyzeEvidence(filterEvidenceAsOf(evidence, new Date(asOf)), new Date(asOf));
+    const analyzed = await analyzeEvidence(filterEvidenceAsOf(evidence, new Date(asOf)), new Date(asOf));
+    const byTitle = new Map<string, (typeof analyzed)[number]>();
+    for (const risk of analyzed) {
+      const key = risk.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const existing = byTitle.get(key);
+      if (!existing || risk.evidence_ids.length > existing.evidence_ids.length) {
+        byTitle.set(key, risk);
+      }
+    }
+    const risks = [...byTitle.values()].slice(0, 10);
     let risksCreated = 0;
     const activeFingerprints = new Set<string>();
     for (const risk of risks) {

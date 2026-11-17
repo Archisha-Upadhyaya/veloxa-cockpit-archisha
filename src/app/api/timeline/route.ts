@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { friendlySourceTitle } from "@/lib/evidence/snippet";
 
 export async function GET() {
   try {
@@ -11,7 +12,12 @@ export async function GET() {
       .order("available_at", { ascending: false });
 
     if (error) throw new Error(error.message);
-    return Response.json({ sources: data ?? [] });
+    return Response.json({
+      sources: (data ?? []).map((source) => ({
+        ...source,
+        title: friendlySourceTitle(source.title),
+      })),
+    });
   } catch (error) {
     console.error("Timeline data query failed", error);
     return Response.json(

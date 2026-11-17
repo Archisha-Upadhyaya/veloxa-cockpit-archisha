@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { promisify } from "node:util";
+import os from "node:os";
 import path from "node:path";
 import { simpleParser } from "mailparser";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
+import { isSensitiveEvidence } from "@/lib/evidence/snippet";
 
 const execFileAsync = promisify(execFile);
 const supportedExtensions = new Set([".csv", ".docx", ".eml", ".pdf", ".txt", ".xlsx"]);
@@ -19,6 +21,7 @@ export type ParsedFile = {
   text: string;
   availableAt: string;
   releaseDay: string;
+  sensitive: boolean;
 };
 
 function sourceType(filePath: string): ParsedFile["sourceType"] {
@@ -36,6 +39,15 @@ function releaseDay(relativePath: string) {
   if (!match) return null;
   const month = { nov: "11" }[match[2].toLowerCase()];
   return month ? `${new Date().getUTCFullYear()}-${month}-${match[1]}` : null;
+}
+
+/**
+ * A release pack becomes available at 10:00 IST on its release day. Using the
+ * file's mtime made point-in-time answers depend on when the repo was copied.
+ */
+function availableAt(relativePath: string, fallback: Date) {
+  const day = releaseDay(relativePath);
+  return day ? `${day}T10:00:00+05:30` : fallback.toISOString();
 }
 
 async function extractText(filePath: string, buffer: Buffer) {
@@ -59,11 +71,16 @@ async function extractText(filePath: string, buffer: Buffer) {
       `From: ${addressText(parsed.from)}`,
       `To: ${addressText(parsed.to)}`,
       `Subject: ${parsed.subject ?? ""}`,
+      parsed.date ? `Date: ${parsed.date.toISOString()}` : "",
       parsed.text ?? "",
-    ].join("\n");
+    ].filter(Boolean).join("\n");
   }
   if (extension === ".pdf") {
-    const temporaryPath = `${filePath}.veloxa-tmp`;
+    // The release-pack mount is read-only, so never write beside the source.
+    const temporaryPath = path.join(
+      os.tmpdir(),
+      `veloxa-${createHash("sha256").update(buffer).digest("hex").slice(0, 16)}.pdf`,
+    );
     await fs.writeFile(temporaryPath, buffer);
     try {
       const result = await execFileAsync("pdftotext", [temporaryPath, "-"]);
@@ -115,11 +132,14 @@ export async function readDataRoom(): Promise<ParsedFile[]> {
   const allowedDays = ["Day1_Mon_16Nov", "Day2_Tue_17Nov"];
   const files: string[] = [];
   for (const day of allowedDays) {
-    const dataRoom = path.join(root, day, "data_room");
-    try {
-      files.push(...(await listFiles(dataRoom)));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    for (const folder of ["data_room", "transcripts"]) {
+      // The release-pack directory is a runtime mount, not part of the image.
+      const directory = path.join(/* turbopackIgnore: true */ root, day, folder);
+      try {
+        files.push(...(await listFiles(directory)));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
   }
   const parsed: ParsedFile[] = [];
@@ -128,6 +148,10 @@ export async function readDataRoom(): Promise<ParsedFile[]> {
     const stat = await fs.stat(absolutePath);
     const text = await extractText(absolutePath, buffer);
     const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
+    const sensitive =
+      /payroll[\s_-]*register|salary[\s_-]*(sheet|register)|payslip/i.test(
+        relativePath,
+      ) || isSensitiveEvidence(text);
     parsed.push({
       absolutePath,
       relativePath,
@@ -135,8 +159,9 @@ export async function readDataRoom(): Promise<ParsedFile[]> {
       title: path.basename(absolutePath),
       sourceType: sourceType(absolutePath),
       text,
-      availableAt: stat.mtime.toISOString(),
+      availableAt: availableAt(relativePath, stat.mtime),
       releaseDay: releaseDay(relativePath) ?? new Date(stat.mtime).toISOString().slice(0, 10),
+      sensitive,
     });
   }
   return parsed;

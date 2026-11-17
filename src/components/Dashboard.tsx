@@ -21,7 +21,14 @@ type DashboardData = {
   priorityRisks: Risk[];
   analysisReady?: boolean;
 };
-type EvidenceHit = { evidence_id: string; evidence_text: string; similarity: number; source_title: string; locator: string };
+type EvidenceHit = {
+  evidence_id: string;
+  summary: string;
+  similarity: number;
+  source_title: string;
+  locator: string;
+  dateLabel?: string;
+};
 
 const emptyData: DashboardData = {
   stats: { people: 0, evidence: 0, embedded: 0, departments: {} },
@@ -119,18 +126,18 @@ export default function Dashboard() {
         )}
         {data.analysisReady === false && !loadError && (
           <div className="mb-5 rounded-xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--muted)]" role="status">
-            Risk analysis is waiting for the latest database migration. The connected records remain available.
+            Concern analysis is not available yet. The rest of the overview still works.
           </div>
         )}
         <div>
           <p className="mb-4 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--accent)]">
-            Executive overview · connected evidence
+            Executive overview · the latest material
           </p>
           <h1 className="max-w-3xl font-serif text-5xl leading-[.98] tracking-[-0.055em] text-[var(--ink)] sm:text-7xl">
             See what matters.<br /><em className="text-[var(--accent)]">Know why.</em>
           </h1>
           <p className="mt-6 max-w-4xl text-[15px] leading-7 text-[var(--muted)]">
-            A quiet layer between Veloxa&apos;s records and the decisions in front of you.
+            A quiet layer between Veloxa&apos;s material and the decisions in front of you.
             Start with the signal, then open the trail.
           </p>
         </div>
@@ -139,7 +146,7 @@ export default function Dashboard() {
       <section className="reveal reveal-delay mt-12 grid gap-3 sm:grid-cols-3">
         {[
           ["People in view", data.stats.people, "active profiles"],
-          ["Evidence loaded", data.stats.evidence, `${coverage}% vector-ready`],
+          ["Sources loaded", data.stats.evidence, `${coverage}% indexed for search`],
           ["Open concerns", data.priorityRisks.length, "worth your attention"],
         ].map(([label, value, note]) => (
           <Link
@@ -158,14 +165,14 @@ export default function Dashboard() {
       <section className="reveal reveal-delay-2 mt-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 sm:p-7">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Evidence search</p>
-            <h2 className="mt-2 font-serif text-3xl tracking-[-.03em]">Ask what the records support</h2>
+            <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Search</p>
+            <h2 className="mt-2 font-serif text-3xl tracking-[-.03em]">Ask what the material supports</h2>
             <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">
-              Search the connected evidence before opening a source or making a decision.
+              Search what we have before opening a source or making a decision.
             </p>
           </div>
           <form onSubmit={search} className="flex w-full max-w-xl items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-2">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search connected evidence…" className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm text-[var(--ink)] outline-none placeholder:text-[var(--muted)]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the material…" className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm text-[var(--ink)] outline-none placeholder:text-[var(--muted)]" />
             <button disabled={searching} className="rounded-lg bg-[var(--ink)] px-4 py-2.5 text-xs text-[var(--paper)] transition hover:bg-[var(--accent)] disabled:opacity-50">
               {searching ? "Looking…" : "Search"}
             </button>
@@ -177,8 +184,12 @@ export default function Dashboard() {
             <div className="grid gap-2 lg:grid-cols-3">
               {hits.slice(0, 3).map((hit) => (
                 <article key={hit.evidence_id} className="rounded-xl bg-[var(--surface)] p-3">
-                  <p className="text-sm leading-6 text-[var(--ink)]">{hit.evidence_text}</p>
-                  <p className="mt-2 font-mono text-[11px] text-[var(--muted)]">{hit.source_title} · {hit.locator}</p>
+                  <p className="text-sm leading-6 text-[var(--ink)]">{hit.summary}</p>
+                  <p className="mt-2 font-mono text-[11px] text-[var(--muted)]">
+                    {hit.source_title}
+                    {hit.locator ? ` · ${hit.locator}` : ""}
+                    {hit.dateLabel ? ` · ${hit.dateLabel}` : ""}
+                  </p>
                 </article>
               ))}
             </div>
@@ -224,10 +235,10 @@ export default function Dashboard() {
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 sm:p-7">
           <div className="flex w-full items-start justify-between text-left">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Evidence desk</p>
-              <h2 className="mt-2 font-serif text-3xl tracking-[-.03em]">What is in the room</h2>
+              <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Latest sources</p>
+              <h2 className="mt-2 font-serif text-3xl tracking-[-.03em]">What we know now</h2>
             </div>
-            <span className="pill rounded-full px-3 py-1.5 text-xs">{visibleSources.length} records</span>
+            <span className="pill rounded-full px-3 py-1.5 text-xs">{visibleSources.length} sources</span>
           </div>
           <div className="mt-6 space-y-2">
             {visibleSources.map((source) => (
@@ -236,7 +247,7 @@ export default function Dashboard() {
                 <p className="mt-2 text-xs text-[var(--muted)]">{source.source_type} · released {source.release_day}</p>
               </div>
             ))}
-            {data.latestSources.length === 0 && <p className="rounded-xl bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">No source records are connected yet.</p>}
+            {data.latestSources.length === 0 && <p className="rounded-xl bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">No sources have arrived yet.</p>}
           </div>
         </div>
 
@@ -253,7 +264,7 @@ export default function Dashboard() {
               <Link key={name} href="/people" className="rounded-xl bg-[var(--surface)] p-4 transition hover:bg-[var(--accent-soft)]">
                 <p className="text-sm font-semibold">{name}</p>
                 <p className="mt-3 font-serif text-3xl">{count}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">{count === 1 ? "person" : "people"} in connected profiles</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">{count === 1 ? "person" : "people"} in the directory</p>
                 <p className="mt-3 text-xs font-semibold text-[var(--accent)]">Open people directory →</p>
               </Link>
             ))}

@@ -240,7 +240,7 @@ export const RISKS: RiskItem[] = [
     statement:
       "The Apr–Jun update put GA at 15 September. The 6 Oct update reports GA moved to absorb unplanned reliability work after a difficult August; the engine is feature-complete in final hardening.",
     inference:
-      "A second schedule slip is plausible until the Day-3 incident and git exports land; customers were promised the routing engine \"by the festive season\" (T1, unverified).",
+      "A second schedule slip is plausible until the engineering release lands. Customers were promised the routing engine \"by the festive season\"; that promise has not been verified.",
     refs: ["E-004", "E-003", "E-006"],
   },
   {
@@ -249,7 +249,7 @@ export const RISKS: RiskItem[] = [
     severity: "high",
     likelihood: "high",
     statement:
-      "Karthik ran February payroll while Fatima was away, reusing the January sheet (email 01). Rahul Verma's first-payslip query (6 Mar) received no recorded resolution (emails 02/03).",
+      "Karthik ran February payroll while Fatima was away, using the January sheet. Rahul Verma's first-payslip query on 6 March has no recorded answer.",
     inference:
       "A potential payroll control weakness worth checking — not evidence of wrongdoing. The query may be entirely benign.",
     refs: ["E-011", "E-012"],
@@ -260,9 +260,9 @@ export const RISKS: RiskItem[] = [
     severity: "high",
     likelihood: "high",
     statement:
-      "ARR and burn figures in T1/T2 cannot be reconciled with the board updates or the ledger as written (₹42–48 Cr vs ₹5.8–6.1 Cr; ₹2.2–2.5 L vs ₹44–46 L).",
+      "The ARR and burn figures in the CEO and CFO calls cannot be reconciled with the board updates or the finance entries (₹42–48 Cr vs ₹5.8–6.1 Cr; ₹2.2–2.5 L vs ₹44–46 L).",
     inference:
-      "Decisions made on transcript numbers would be wrong by an order of magnitude. The cockpit always prefers the structured record and logs the conflict.",
+      "Decisions made on the call numbers would be wrong by an order of magnitude. We prefer the exported finance figures and keep the conflict visible.",
     refs: ["E-006", "E-007", "E-001", "E-002", "E-013"],
   },
   {
@@ -273,7 +273,7 @@ export const RISKS: RiskItem[] = [
     statement:
       "The Jul–Sep update confirms hiring is paused while the round closes; the Apr–Jun update planned two backend engineers to de-risk Atlas. The CFO ties a freeze to \"if the raise slips\".",
     inference:
-      "If the round slips, Atlas hardening capacity stays constrained — compounding risk 1.",
+      "If the round slips, Atlas hardening capacity stays constrained, compounding the Atlas schedule concern.",
     refs: ["E-014", "E-007"],
   },
   {
@@ -282,20 +282,20 @@ export const RISKS: RiskItem[] = [
     severity: "medium",
     likelihood: "high",
     statement:
-      "The Jul–Sep update notes one planned marketing departure; VX013 (Siddharth Mehta, PMM) shows notice period with exit date 31 Oct 2026. The board update does not name him.",
+      "The Jul–Sep update notes one planned marketing departure. Siddharth Mehta, Product Marketing Manager, is on notice with an exit date of 31 Oct 2026; the board update does not name him.",
     inference:
-      "The linkage is an assumption (A-010). Summit follow-through and performance-marketing continuity are the exposure areas.",
+      "The link between the two is an assumption. Summit follow-through and performance-marketing continuity are the exposure areas.",
     refs: ["E-010", "E-014"],
   },
   {
     rank: 6,
-    title: "Engineering velocity is unmeasurable in the current corpus",
+    title: "Engineering delivery cannot be measured yet",
     severity: "info_gap",
     likelihood: "high",
     statement:
-      "The CEO's stated top concern (T1) has no supporting exports yet: Jira, git history and PagerDuty files listed in the data-room index are absent from the loaded packs.",
+      "The CEO's top concern has no supporting exports yet: the Jira, git history and PagerDuty files listed in the source index are not in the released material.",
     inference:
-      "This is an evidence gap, not a company risk. It should disappear when the Day-3 pack arrives — and if it doesn't, that's the finding.",
+      "This is a gap in what we know, not a company risk. It should close when the engineering release arrives; if it does not, that is the finding.",
     refs: ["E-006"],
   },
 ];

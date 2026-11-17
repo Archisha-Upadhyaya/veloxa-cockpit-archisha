@@ -1,16 +1,22 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { generateGroundedAnswer } from "@/lib/ai/gemini";
+import { RISK_ANALYSIS_SYSTEM } from "@/lib/ai/prompts";
+import {
+  extractEvidenceSnippet,
+  isSensitiveEvidence,
+  looksLikeRawDump,
+} from "@/lib/evidence/snippet";
 
 const riskSchema = z.object({
   risks: z.array(z.object({
-    title: z.string().min(3),
-    description: z.string().min(20),
+    title: z.string().min(3).max(140),
+    description: z.string().min(20).max(620),
     severity: z.enum(["low", "medium", "high", "critical"]),
     likelihood: z.enum(["low", "medium", "high", "unknown"]),
     confidence: z.enum(["low", "medium", "high"]),
     evidence_ids: z.array(z.string().uuid()).min(1).max(8),
-  })).max(12),
+  })).max(10),
 });
 
 export type AnalyzedRisk = z.infer<typeof riskSchema>["risks"][number];
@@ -46,29 +52,123 @@ export function filterEvidenceAsOf<T extends { text: string }>(evidence: T[], as
   return evidence.filter((item) => !hasFutureDatedEvent(item.text, asOf));
 }
 
+const severityWeight: Record<string, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+const likelihoodWeight: Record<string, number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+  unknown: 0,
+};
+
+/**
+ * Order concerns the way a CEO reads them: severity first, then likelihood,
+ * then the most recently reviewed. Postgres text ordering is alphabetical, so
+ * this cannot be delegated to the database without a custom enum.
+ */
+export function rankRisks<
+  T extends {
+    severity: string;
+    likelihood?: string | null;
+    last_reviewed_at?: string | null;
+  },
+>(risks: T[]): T[] {
+  return [...risks].sort((left, right) => {
+    const severity =
+      (severityWeight[right.severity] ?? 0) - (severityWeight[left.severity] ?? 0);
+    if (severity !== 0) return severity;
+    const likelihood =
+      (likelihoodWeight[right.likelihood ?? "unknown"] ?? 0) -
+      (likelihoodWeight[left.likelihood ?? "unknown"] ?? 0);
+    if (likelihood !== 0) return likelihood;
+    return (
+      new Date(right.last_reviewed_at ?? 0).valueOf() -
+      new Date(left.last_reviewed_at ?? 0).valueOf()
+    );
+  });
+}
+
+function normalizeTitle(title: string) {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Analysis-generated concerns supersede the static Day-1 baseline when the
+ * same concern appears twice. The Risks page can therefore show everything
+ * without repeating itself.
+ */
+export function dedupeAndRankRisks<
+  T extends {
+    title: string;
+    description?: string | null;
+    origin?: string | null;
+    severity: string;
+    likelihood?: string | null;
+    last_reviewed_at?: string | null;
+  },
+>(risks: T[]): T[] {
+  const byTitle = new Map<string, T>();
+  for (const risk of risks) {
+    const key = normalizeTitle(risk.title);
+    const existing = byTitle.get(key);
+    if (!existing || (existing.origin !== "analysis" && risk.origin === "analysis")) {
+      byTitle.set(key, risk);
+    }
+  }
+  // Two fallback concerns can carry the same generic explanation. Showing the
+  // same paragraph twice makes the Risks page look padded, so keep one.
+  const seenDescriptions = new Set<string>();
+  const unique = [...byTitle.values()].filter((risk) => {
+    const description = risk.description ? normalizeTitle(risk.description) : "";
+    if (description.length < 40) return true;
+    if (seenDescriptions.has(description)) return false;
+    seenDescriptions.add(description);
+    return true;
+  });
+  return rankRisks(unique);
+}
+
 function conciseDescription(title: string) {
   const lowerTitle = title.toLowerCase();
-  if (lowerTitle.includes("capacity") || lowerTitle.includes("retention")) {
-    return "Records indicate possible capacity or retention pressure in the company. The people affected, current impact, and appropriate response should be confirmed.";
+  if (
+    lowerTitle.includes("hiring") ||
+    lowerTitle.includes("staffing") ||
+    lowerTitle.includes("retention")
+  ) {
+    return "Open roles and a paused hiring plan may leave key work without enough people. The roles, owners, and current status should be confirmed before the next planning cycle.";
+  }
+  if (lowerTitle.includes("capacity")) {
+    return "Workload, leave, and retention signals point to pressure on team capacity. The affected people and current coverage should be confirmed before more work is committed.";
   }
   if (lowerTitle.includes("incident")) {
-    return "Records indicate an operational incident pattern that may affect delivery. The current impact and recovery status should be confirmed.";
+    return "Operational incidents may be affecting delivery and reliability. The current impact and recovery status should be confirmed.";
   }
   if (lowerTitle.includes("financial")) {
-    return "Records indicate a financial control issue that may need review. The underlying transaction and whether it remains unresolved should be confirmed.";
+    return "Financial figures do not reconcile cleanly across the available material. The underlying transactions and whether they remain unresolved should be confirmed.";
   }
-  if (lowerTitle.includes("hiring") || lowerTitle.includes("staffing")) {
-    return "Records indicate a possible staffing gap or execution constraint. The role, owner, and current hiring status should be confirmed.";
-  }
-  return "Records indicate an execution concern that needs review. The current impact, owner, and next action should be confirmed.";
+  return "There are unresolved execution signals affecting a current commitment. The impact, owner, and next action should be confirmed.";
 }
 
 function normalizeDescription(title: string, description: string) {
   const cleaned = description
     .replace(/^Evidence-derived signal from \d+ connected records:\s*/i, "")
     .replace(/\s*This is an analytical flag for review, not a confirmed conclusion\.?\s*$/i, "")
+    .replace(/\b(?:Sheet|Chunk|Row|File):?\s*[\w.-]+/gi, "")
     .trim();
-  return cleaned.length >= 40 && cleaned.length <= 420 ? cleaned : conciseDescription(title);
+  if (
+    cleaned.length < 40 ||
+    cleaned.length > 620 ||
+    looksLikeRawDump(cleaned) ||
+    isSensitiveEvidence(cleaned)
+  ) {
+    return conciseDescription(title);
+  }
+  return cleaned;
 }
 
 const signalGroups = [
@@ -105,8 +205,11 @@ const signalGroups = [
 ];
 
 function inferRisksFromEvidence(evidence: Array<{ id: string; text: string; source: string }>) {
+  const safeEvidence = evidence.filter(
+    (item) => !isSensitiveEvidence(item.text) && !looksLikeRawDump(item.text),
+  );
   return signalGroups.flatMap((group) => {
-    const matches = evidence.filter((item) => {
+    const matches = safeEvidence.filter((item) => {
       const text = item.text.toLowerCase();
       return group.terms.some((term) => text.includes(term));
     }).slice(0, 6);
@@ -133,14 +236,33 @@ export async function analyzeEvidence(evidence: Array<{
   text: string;
   source: string;
 }>, asOf = new Date()) {
-  const currentEvidence = filterEvidenceAsOf(evidence, asOf);
+  const currentEvidence = filterEvidenceAsOf(evidence, asOf)
+    .filter((item) => !isSensitiveEvidence(item.text))
+    .map((item) => {
+      const [sourceTitle, ...locatorParts] = item.source.split(" · ");
+      const snippet = extractEvidenceSnippet(item.text, {
+        context:
+          "hiring staffing capacity retention payroll finance delivery launch incidents workload leave absence",
+        sourceTitle,
+        locator: locatorParts.join(" · "),
+      });
+      return {
+        ...item,
+        text: snippet.sensitive ? "" : snippet.summary,
+      };
+    })
+    .filter((item) => item.text.length > 0);
   if (currentEvidence.length === 0) return [];
-  const prompt = `You are Veloxa's risk-analysis service. Analyze only the evidence below.
+  const prompt = `Analyze only the evidence below.
 The analysis date is ${asOf.toISOString().slice(0, 10)}. Do not use any
-record that explicitly describes an event after that date, even if it is
-present in the supplied corpus.
+record that explicitly describes an event after that date.
 Return JSON only in this exact shape:
 {"risks":[{"title":"short decision-relevant title","description":"what the evidence says, why it matters, and what remains uncertain","severity":"low|medium|high|critical","likelihood":"low|medium|high|unknown","confidence":"low|medium|high","evidence_ids":["uuid"]}]}
+
+How many concerns:
+- Return up to 10 main concerns. A typical answer is 5-8.
+- Never pad the list to hit a number. If only 3 concerns are genuinely material, return 3. If 9 are material, return 9. The maximum is 10.
+- The overview surfaces the top 3 by severity; the Risks page shows the rest.
 
 Rules:
 - Identify only material business concerns or explicit evidence gaps.
@@ -149,7 +271,7 @@ Rules:
   leave/absence coverage, unresolved employee issues, handoff failures,
   burnout/retention signals, and operational bottlenecks.
 - Do not invent owners, deadlines, facts, or causes.
-- Do not label an employee overloaded or underutilized unless the records support
+- Do not label an employee overloaded or underutilized unless the evidence supports
   the comparison through workload, tasks, leave, incidents, assignments, or
   explicit employee/manager statements. State the evidence and uncertainty.
 - Use one risk per distinct underlying issue.
@@ -157,14 +279,17 @@ Rules:
 - If the same issue appears in multiple files, produce one risk, not duplicates.
 - Prefer a cautious evidence gap over a fabricated conclusion.
 - Keep the description suitable for a detail page: explain the observed facts,
-  the inference, and the uncertainty without mentioning a record count.
+  the inference, and the uncertainty in 2-4 plain sentences.
+- Do not copy table rows, CSV lines, headers, file names, or chunk IDs.
+- Do not mention individual salaries, payroll rows, or named employee pay.
 
 Evidence:
 ${currentEvidence.map((item) => `[${item.id}] ${item.source}\n${item.text}`).join("\n\n")}`;
   try {
     const raw = await generateGroundedAnswer(
       prompt,
-      "You are a conservative enterprise risk-analysis service. Return only the requested JSON. Use only supplied evidence, preserve uncertainty, and never invent facts.",
+      RISK_ANALYSIS_SYSTEM,
+      { maxOutputTokens: 4_096, timeoutMs: 30_000 },
     );
     const json = raw.match(/\{[\s\S]*\}/)?.[0];
     if (!json) throw new Error("Risk analysis did not return JSON.");

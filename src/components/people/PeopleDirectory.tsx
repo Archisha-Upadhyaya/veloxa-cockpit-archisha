@@ -41,6 +41,18 @@ function departmentColor(department: string) {
   return "#9a7958";
 }
 
+function provenanceLabel(provenance: string) {
+  if (provenance === "grounded" || provenance === "grounded_inference") {
+    return "from what they know";
+  }
+  if (provenance === "profile_inference") return "from their role";
+  if (provenance === "recorded_context") return "from a previous conversation";
+  if (provenance === "policy_refusal") return "confidential";
+  if (provenance === "conversation") return "in conversation";
+  if (provenance === "no_visibility") return "not known";
+  return "not certain";
+}
+
 export default function PeopleDirectory() {
   const [people, setPeople] = useState<Person[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -107,7 +119,7 @@ export default function PeopleDirectory() {
           question: currentQuestion,
           answer:
             result.response?.answer ??
-            "No response was returned from the connected records.",
+            "No response came back. Try asking again.",
           provenance: result.response?.provenance ?? "no_visibility",
         },
       ]);
@@ -145,7 +157,7 @@ export default function PeopleDirectory() {
         <div className="people-list thin-scrollbar">
           {loading && (
             <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-8 text-base text-[var(--muted)]">
-              Loading connected profiles…
+              Loading people…
             </div>
           )}
           {!loading && filtered.length === 0 && (
@@ -169,7 +181,7 @@ export default function PeopleDirectory() {
                 <span className="person-name">{person.name}</span>
                 <span className="person-title">{person.title}</span>
                 <span className="person-meta">
-                  {person.department} · {person.location ?? "Location not recorded"}
+                  {person.department} · {person.location ?? "Location not available"}
                 </span>
               </span>
               <span className="person-action">
@@ -221,7 +233,7 @@ export default function PeopleDirectory() {
 
             <div className="chat-content thin-scrollbar">
               <div className="chat-facts">
-                <p className="chat-eyebrow">Known from connected records</p>
+                <p className="chat-eyebrow">What I know</p>
                 <ul className="mt-3 space-y-2">
                   {(selected.groundedFacts ?? []).map((fact) => (
                     <li key={fact} className="text-sm leading-6 text-[var(--muted)]">
@@ -240,8 +252,8 @@ export default function PeopleDirectory() {
                       Start a focused conversation
                     </p>
                     <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                      Ask about this person&apos;s role, recorded work, or an
-                      evidence gap. The agent will not invent task updates.
+                      Ask about their role, current work, or what they don&apos;t
+                      know. They won&apos;t invent an update.
                     </p>
                   </div>
                 )}
@@ -253,12 +265,12 @@ export default function PeopleDirectory() {
                         {entry.answer}
                       </p>
                       <span className="chat-provenance">
-                        {entry.provenance.replace("_", " ")}
+                        {provenanceLabel(entry.provenance)}
                       </span>
                     </div>
                   </div>
                 ))}
-                {asking && <p className="chat-thinking">Consulting connected context…</p>}
+                {asking && <p className="chat-thinking">Thinking…</p>}
               </div>
             </div>
 

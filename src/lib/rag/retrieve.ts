@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { defaultMatchThreshold } from "@/lib/rag/embeddings";
 
 export type RetrievedEvidence = {
   evidence_id: string;
@@ -19,7 +20,7 @@ export async function retrieveEvidence(
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase.rpc("match_evidence", {
     query_embedding: queryEmbedding,
-    match_threshold: options?.threshold ?? 0.72,
+    match_threshold: options?.threshold ?? defaultMatchThreshold(),
     match_count: options?.limit ?? 8,
     as_of: options?.asOf ?? new Date().toISOString(),
   });

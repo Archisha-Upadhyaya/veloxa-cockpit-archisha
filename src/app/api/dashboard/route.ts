@@ -1,4 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { dedupeAndRankRisks } from "@/lib/analysis/risk";
+import { friendlySourceTitle, humanizeConcernText } from "@/lib/evidence/snippet";
 
 export async function GET() {
   try {
@@ -7,12 +9,10 @@ export async function GET() {
     const riskQuery = supabase
       .from("risk_items")
       .select(
-        "id, risk_key, title, description, severity, likelihood, status, confidence",
+        "id, risk_key, title, description, severity, likelihood, status, confidence, origin, last_reviewed_at",
       )
-      .eq("origin", "analysis")
       .in("status", ["open", "watch"])
-      .order("severity", { ascending: false })
-      .limit(3);
+      .limit(30);
     const [people, evidence, documents, risks] = await Promise.all([
       supabase
         .from("employee_profiles")
@@ -37,7 +37,11 @@ export async function GET() {
     }
     const analysisReady = !risks.error || risks.error.code !== "42703";
     if (risks.error && analysisReady) throw new Error(risks.error.message);
-    let currentRisks = risks.data ?? [];
+    let currentRisks = (risks.data ?? []).map((risk) => ({
+      ...risk,
+      title: humanizeConcernText(risk.title),
+      description: humanizeConcernText(risk.description),
+    }));
     if (analysisReady && currentRisks.length > 0) {
       const links = await supabase
         .from("risk_evidence")
@@ -65,8 +69,13 @@ export async function GET() {
         embedded: (evidence.data ?? []).filter((item) => item.embedding).length,
         departments: departmentCounts,
       },
-      latestSources: documents.data ?? [],
-      priorityRisks: analysisReady ? currentRisks : [],
+      latestSources: (documents.data ?? []).map((document) => ({
+        ...document,
+        title: friendlySourceTitle(document.title),
+      })),
+      priorityRisks: analysisReady
+        ? dedupeAndRankRisks(currentRisks).slice(0, 3)
+        : [],
       analysisReady,
     });
   } catch (error) {
