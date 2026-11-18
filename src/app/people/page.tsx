@@ -1,27 +1,19 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import PeopleDirectory from "@/components/people/PeopleDirectory";
 
-type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
+export const metadata: Metadata = {
+  title: "People",
+  description: "Everyone at Veloxa, who they report to, and who you can talk to.",
+};
 
-/** Reads the deep-link query (department / chat / about) at request time. */
-async function PeopleWithParams({ searchParams }: { searchParams: SearchParams }) {
-  const { department, chat, about } = await searchParams;
-  return (
-    <PeopleDirectory
-      initialDepartment={typeof department === "string" ? department : "All"}
-      initialChat={typeof chat === "string" ? chat : undefined}
-      initialTopic={typeof about === "string" ? about : undefined}
-    />
-  );
-}
-
-export default function PeoplePage({ searchParams }: { searchParams: SearchParams }) {
+export default function PeoplePage() {
   return (
     <main className="mx-auto w-full max-w-[1380px] flex-1 px-5 py-8 lg:px-10">
-      {/* The static shell renders the directory immediately; the query
-          string is applied once the request-time part streams in. */}
-      <Suspense fallback={<PeopleDirectory />}>
-        <PeopleWithParams searchParams={searchParams} />
+      {/* The directory reads ?department / ?chat / ?about on the client;
+          useSearchParams needs a Suspense boundary under Cache Components. */}
+      <Suspense fallback={<p className="text-sm text-[var(--muted)]">Loading people…</p>}>
+        <PeopleDirectory />
       </Suspense>
     </main>
   );

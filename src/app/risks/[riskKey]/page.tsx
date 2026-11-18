@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import RiskDetailView from "@/components/RiskDetailView";
+
+export const metadata: Metadata = {
+  title: "Concern",
+  description: "A concern, its evidence and the next step.",
+};
 
 export const instant = false;
 

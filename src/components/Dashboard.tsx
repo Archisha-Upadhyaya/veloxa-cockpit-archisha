@@ -30,6 +30,7 @@ type Brief = {
   latestDay: string | null;
   newSources: Source[];
   lastAnalysis: { at: string; model: string | null } | null;
+  briefStale?: boolean;
 };
 type Person = { empId: string; name: string; title: string; department: string; isActive: boolean };
 type AskSource = { n: number; id: string; summary: string; source: string; date: string | null };
@@ -41,9 +42,7 @@ type HealthArea = {
   headline: string;
   why: string;
   evidence: Array<{ summary: string; source: string; tier: string }>;
-  findings: Array<{ key: string; title: string; polarity: string | null }>;
   contact: { empId: string; name: string; title: string } | null;
-  people: number;
 };
 
 function greeting(date: Date) {
@@ -103,10 +102,13 @@ export default function Dashboard() {
         return body as Brief;
       }),
       fetch("/api/people").then((response) => response.json()).catch(() => ({ people: [] })),
+      // The last saved health check, so it shows without re-running.
+      fetch("/api/health-check").then((response) => response.json()).catch(() => ({ check: null })),
     ])
-      .then(([briefData, peopleData]) => {
+      .then(([briefData, peopleData, healthData]) => {
         setBrief(briefData);
         setPeople(peopleData.people ?? []);
+        if (healthData.check) setHealth(healthData.check);
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "The brief is unavailable."));
   }, []);
@@ -167,12 +169,24 @@ export default function Dashboard() {
     }
   }
 
+  const [updating, setUpdating] = useState(false);
+  async function updateBrief() {
+    setUpdating(true);
+    try {
+      await fetch("/api/analyze", { method: "POST" });
+      const response = await fetch("/api/dashboard");
+      if (response.ok) setBrief(await response.json());
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   async function runHealthCheck() {
     setChecking(true);
     try {
       const response = await fetch("/api/health-check", { method: "POST" });
       const body = await response.json();
-      if (response.ok) setHealth(body);
+      if (response.ok && body.check) setHealth(body.check);
     } finally {
       setChecking(false);
     }
@@ -191,9 +205,13 @@ export default function Dashboard() {
     ? [
         brief.concerns.length
           ? `${brief.concerns.length} ${brief.concerns.length === 1 ? "thing needs" : "things need"} your attention`
-          : "nothing urgent on your desk",
+          : brief.briefStale
+            ? "Your brief hasn't been built from the latest documents yet"
+            : "Nothing urgent on your desk",
         brief.positives.length ? `${brief.positives.length} going well` : null,
-        brief.newSources.length ? `${brief.newSources.length} new ${brief.newSources.length === 1 ? "document" : "documents"} since the last pack` : null,
+        brief.newSources.length && brief.latestDay
+          ? `${brief.newSources.length} ${brief.newSources.length === 1 ? "document" : "documents"} added on ${new Date(`${brief.latestDay}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
+          : null,
       ].filter(Boolean).join(" · ")
     : "Putting your brief together…";
 
@@ -207,24 +225,38 @@ export default function Dashboard() {
             <> · brief updated {new Date(brief.lastAnalysis.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</>
           )}
         </p>
-        <h1 className="mt-2 font-serif text-4xl tracking-[-.04em] sm:text-5xl">
+        <h1 className="mt-1 font-serif text-3xl tracking-[-.03em] sm:text-4xl">
           {now ? greeting(now) : "Hello"}{firstName ? `, ${firstName}` : ""}.
         </h1>
         <p className="mt-2 text-base text-[var(--muted)]">{summaryLine}</p>
       </section>
 
       {/* Stat row — full counts */}
-      <section className="reveal reveal-delay mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+      <section className="reveal reveal-delay mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Link href="/risks" className="stat-card stat-critical">
           <span className="stat-label">Open concerns</span>
           <span className="stat-value">{brief ? brief.concerns.length : "—"}</span>
           <span className="stat-note">see them all →</span>
         </Link>
-        <Link href="/risks#going-well" className="stat-card stat-good">
-          <span className="stat-label">Going well</span>
-          <span className="stat-value">{brief ? brief.positives.length : "—"}</span>
-          <span className="stat-note">what&apos;s working →</span>
-        </Link>
+        <a href="#health-check" className="stat-card stat-good">
+          <span className="stat-label">Health check</span>
+          {health ? (
+            <>
+              <span className="stat-value">
+                {health.areas.filter((area) => area.status === "good").length}
+                <span className="ml-1 text-sm font-sans text-[var(--muted)]">of {health.areas.length} areas going well</span>
+              </span>
+              <span className="stat-note">
+                {health.areas.filter((area) => area.status === "act").length} need you · see all →
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="stat-value">—</span>
+              <span className="stat-note">run a check →</span>
+            </>
+          )}
+        </a>
         <Link href="/people" className="stat-card stat-people">
           <span className="stat-label">People</span>
           <span className="stat-value">{brief ? brief.stats.people : "—"}</span>
@@ -237,8 +269,75 @@ export default function Dashboard() {
         </Link>
       </section>
 
+      {/* Attention map — concerns only, top 3 */}
+      <section className="reveal reveal-delay mt-8">
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <p className="section-eyebrow text-[var(--critical)]">Needs your attention</p>
+            <h2 className="font-serif text-2xl tracking-[-.03em]">What&apos;s going wrong</h2>
+          </div>
+          {brief && brief.concerns.length > 3 && (
+            <Link href="/risks" className="text-xs font-semibold text-[var(--accent)] hover:underline">
+              +{brief.concerns.length - 3} more →
+            </Link>
+          )}
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {brief && top.length === 0 && !brief.briefStale && (
+            <p className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 text-sm text-[var(--muted)] lg:col-span-3">
+              Nothing needs you right now. Run the health check below for a full picture.
+            </p>
+          )}
+          {brief?.briefStale && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--warning)] bg-[var(--warn-soft)] p-5 lg:col-span-3">
+              <p className="text-sm">
+                {brief.newSources.length
+                  ? `${brief.newSources.length} new ${brief.newSources.length === 1 ? "document has" : "documents have"} arrived since this brief was built.`
+                  : "This brief hasn't been built yet."}
+                {top.length > 0 ? " The concerns below may be out of date." : ""}
+              </p>
+              <button type="button" onClick={updateBrief} disabled={updating} className="talk-button">
+                {updating ? "Reading the new documents… (about a minute)" : "Update brief now"}
+              </button>
+            </div>
+          )}
+          {top.map((finding, index) => {
+            const owner = finding.owner_employee_key ? personByKey.get(finding.owner_employee_key) : undefined;
+            return (
+              <article key={finding.id} className={`concern-card sev-${finding.severity}`}>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="concern-rank">{String(index + 1).padStart(2, "0")}</span>
+                  <SeverityPill severity={finding.severity} />
+                  {finding.area && <AreaPill area={finding.area} all={departments} />}
+                  <ConfidencePill confidence={finding.confidence} />
+                </div>
+                <Link href={`/risks/${encodeURIComponent(finding.risk_key)}`} className="mt-3 block">
+                  <h3 className="text-[17px] font-semibold leading-snug hover:underline">{finding.title}</h3>
+                </Link>
+                {(finding.observed ?? finding.inference) && (
+                  <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{finding.observed ?? finding.inference}</p>
+                )}
+                {finding.recommended_action && (
+                  <p className="next-step mt-3"><span>Next</span>{finding.recommended_action}</p>
+                )}
+                <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
+                  <Link href={`/risks/${encodeURIComponent(finding.risk_key)}`} className="ghost-button">
+                    Evidence{finding.evidence_count ? ` · ${finding.evidence_count}` : ""}
+                  </Link>
+                  {owner && (
+                    <Link href={chatLink(owner.empId, finding.title)} className="talk-button">
+                      Talk to {owner.name.split(" ")[0]} →
+                    </Link>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Ask */}
-      <section className="reveal reveal-delay mt-8 ask-panel">
+      <section className="reveal reveal-delay-2 mt-10 ask-panel">
         <div className="flex items-center gap-2">
           <span className="ask-spark" aria-hidden="true">✦</span>
           <h2 className="text-sm font-semibold">Ask anything about Veloxa</h2>
@@ -307,58 +406,6 @@ export default function Dashboard() {
         )}
       </section>
 
-      {/* Attention map — concerns only, top 3 */}
-      <section className="reveal reveal-delay-2 mt-12">
-        <div className="mb-4 flex items-end justify-between">
-          <div>
-            <p className="section-eyebrow text-[var(--critical)]">Needs your attention</p>
-            <h2 className="font-serif text-2xl tracking-[-.03em]">What&apos;s going wrong</h2>
-          </div>
-          {brief && brief.concerns.length > 3 && (
-            <Link href="/risks" className="text-xs font-semibold text-[var(--accent)] hover:underline">
-              +{brief.concerns.length - 3} more →
-            </Link>
-          )}
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {brief && top.length === 0 && (
-            <p className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 text-sm text-[var(--muted)] lg:col-span-3">
-              Nothing needs you right now. Run the health check below for a full picture.
-            </p>
-          )}
-          {top.map((finding, index) => {
-            const owner = finding.owner_employee_key ? personByKey.get(finding.owner_employee_key) : undefined;
-            return (
-              <article key={finding.id} className={`concern-card sev-${finding.severity}`}>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="concern-rank">{String(index + 1).padStart(2, "0")}</span>
-                  <SeverityPill severity={finding.severity} />
-                  {finding.area && <AreaPill area={finding.area} all={departments} />}
-                  <ConfidencePill confidence={finding.confidence} />
-                </div>
-                <Link href={`/risks/${encodeURIComponent(finding.risk_key)}`} className="mt-3 block">
-                  <h3 className="text-[17px] font-semibold leading-snug hover:underline">{finding.title}</h3>
-                </Link>
-                {finding.inference && <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{finding.inference}</p>}
-                {finding.recommended_action && (
-                  <p className="next-step mt-3"><span>Next</span>{finding.recommended_action}</p>
-                )}
-                <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
-                  <Link href={`/risks/${encodeURIComponent(finding.risk_key)}`} className="ghost-button">
-                    Evidence{finding.evidence_count ? ` · ${finding.evidence_count}` : ""}
-                  </Link>
-                  {owner && (
-                    <Link href={chatLink(owner.empId, finding.title)} className="talk-button">
-                      Talk to {owner.name.split(" ")[0]} →
-                    </Link>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
       {/* Going well */}
       {brief && brief.positives.length > 0 && (
         <section className="reveal reveal-delay-2 mt-12">
@@ -389,18 +436,18 @@ export default function Dashboard() {
       )}
 
       {/* Health check */}
-      <section className="reveal reveal-delay-2 mt-12 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
+      <section id="health-check" className="reveal reveal-delay-2 mt-12 scroll-mt-28 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="section-eyebrow text-[var(--accent)]">Company health check</p>
             <p className="text-sm text-[var(--muted)]">
               {health
-                ? `Checked ${new Date(health.checkedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}${health.mode === "stored" ? " · from the last brief (live check unavailable)" : ""}`
-                : "A team-by-team status, on demand."}
+                ? `Last checked ${new Date(health.checkedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}${health.mode === "stored" ? " · based on your brief (the live check was unavailable)" : ""}`
+                : "How each part of the business is doing: clients, money, delivery, people. Run it when you want the full picture."}
             </p>
           </div>
           <button onClick={runHealthCheck} disabled={checking} className="talk-button">
-            {checking ? "Checking every team…" : health ? "Run again" : "Run health check"}
+            {checking ? "Checking… (up to a minute)" : health ? "Check again" : "Run health check"}
           </button>
         </div>
         {health && (
@@ -413,7 +460,9 @@ export default function Dashboard() {
                       <StatusDot status={area.status} />
                       {area.area}
                     </span>
-                    <span className="status-label">{area.status === "act" ? "act now" : area.status}</span>
+                    <span className="status-label">
+                      {{ act: "needs you", watch: "keep an eye", good: "going well", unknown: "no data" }[area.status]}
+                    </span>
                   </span>
                   <span className="mt-1 block text-sm leading-6">{area.headline}</span>
                 </button>
@@ -425,16 +474,11 @@ export default function Dashboard() {
                         “{item.summary}” <span className="font-mono text-[10px]">— {item.source}{item.tier === "secondary" ? " (call)" : ""}</span>
                       </p>
                     ))}
-                    {area.findings.map((finding) => (
-                      <Link key={finding.key} href={`/risks/${encodeURIComponent(finding.key)}`} className="mt-1 block text-xs font-semibold text-[var(--accent)] hover:underline">
-                        {finding.polarity === "positive" ? "✓" : "!"} {finding.title}
-                      </Link>
-                    ))}
                   </div>
                 )}
                 {area.contact && (
                   <Link href={chatLink(area.contact.empId, `how ${area.area} is doing`)} className="mt-2 inline-block text-xs font-semibold text-[var(--accent)] hover:underline">
-                    Check in with {area.contact.name.split(" ")[0]} →
+                    Talk to {area.contact.name.split(" ")[0]} →
                   </Link>
                 )}
               </div>
@@ -446,7 +490,7 @@ export default function Dashboard() {
       {/* New today + teams */}
       <section className="reveal reveal-delay-2 mt-12 mb-8 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
-          <p className="section-eyebrow text-[var(--accent)]">New in the latest pack{brief?.latestDay ? ` · ${brief.latestDay}` : ""}</p>
+          <p className="section-eyebrow text-[var(--accent)]">{brief?.latestDay ? `Added on ${new Date(`${brief.latestDay}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : "Latest documents"}</p>
           <ul className="mt-3 divide-y divide-[var(--line)]">
             {(brief?.newSources ?? []).slice(0, 6).map((source) => (
               <li key={source.id} className="flex items-center justify-between gap-3 py-2 text-sm">

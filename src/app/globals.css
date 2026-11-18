@@ -364,7 +364,7 @@ input, button { font-size: 0.9375rem; }
   border: 1px solid var(--line);
   border-radius: 1rem;
   background: var(--paper);
-  padding: .9rem 1rem;
+  padding: .7rem 1rem;
   transition: transform 150ms ease, box-shadow 150ms ease;
 }
 .stat-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; }
@@ -374,7 +374,7 @@ input, button { font-size: 0.9375rem; }
 .stat-people::before { background: #5b4b8a; }
 .stat-sources::before { background: #2c6a8f; }
 .stat-label { color: var(--muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
-.stat-value { margin-top: .15rem; font-family: Georgia, serif; font-size: 2.1rem; line-height: 1.1; }
+.stat-value { margin-top: .1rem; font-family: Georgia, serif; font-size: 1.7rem; line-height: 1.1; }
 .stat-note { margin-top: .2rem; color: var(--accent); font-size: .72rem; font-weight: 600; }
 
 .ask-panel {
@@ -397,7 +397,8 @@ input, button { font-size: 0.9375rem; }
   color: var(--paper);
   font-size: .62rem;
   font-weight: 700;
-  vertical-align: super;
+  line-height: 1;
+  vertical-align: .15em;
 }
 .source-chip { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); padding: .15rem .6rem .15rem .2rem; font-size: .72rem; }
 .source-chip .cite-pill { vertical-align: middle; margin: 0; }

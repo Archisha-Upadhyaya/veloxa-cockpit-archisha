@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import SourcesView from "@/components/SourcesView";
+
+export const metadata: Metadata = {
+  title: "Documents",
+  description: "The documents the brief is built from.",
+};
 
 export default function SourcesPage() {
   return (

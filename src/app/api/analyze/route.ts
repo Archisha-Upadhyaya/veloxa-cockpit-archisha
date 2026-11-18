@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { analyzeEvidence, filterEvidenceAsOf, riskFingerprint } from "@/lib/analysis/risk";
+import { analyzeCorpus } from "@/lib/analysis/corpus";
 import { loadAnalysisEvidence } from "@/lib/analysis/evidence";
 
 type Supabase = ReturnType<typeof createServerSupabaseClient>;
@@ -67,7 +68,7 @@ export async function POST() {
       .select("employee_key, display_name, role_title, department")
       .eq("is_active", true);
     if (people.error) throw new Error(people.error.message);
-    const analysis = await analyzeEvidence(
+    const analysis = await analyzeCorpus(
       evidence,
       new Date(asOf),
       (people.data ?? []).map((person) => ({

@@ -133,7 +133,7 @@ export async function POST(request: Request) {
 
     if (notes.length === 0) {
       return Response.json({
-        answer: "Nothing in the released material covers that yet.",
+        answer: "None of the documents we have cover that yet.",
         sources: [],
         mode: "no_record",
       });
@@ -159,12 +159,23 @@ ${notes.map((note, index) => `[${index + 1}] ${note}`).join("\n")}`,
         CEO_ASK_SYSTEM,
         { task: "chat", maxOutputTokens: 700, timeoutMs: 20_000 },
       );
-      const used = new Set(
-        [...text.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)].flatMap((match) => match[1].split(",").map((n) => Number(n.trim()))),
-      );
+      // Renumber citations 1..k in order of first use, so the CEO sees
+      // [1] [2] [3], not the internal note numbers.
+      const order = [...text.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)]
+        .flatMap((match) => match[1].split(",").map((n) => Number(n.trim())))
+        .filter((n, index, all) => all.indexOf(n) === index && citedSources.some((source) => source.n === n));
+      const renumber = new Map(order.map((n, index) => [n, index + 1]));
+      const answer = text
+        .trim()
+        .replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_match, list: string) => {
+          const mapped = [...new Set(list.split(",").map((n) => renumber.get(Number(n.trim()))).filter(Boolean))];
+          return mapped.length ? `[${mapped.join(", ")}]` : "";
+        });
       return Response.json({
-        answer: text.trim(),
-        sources: citedSources.filter((source) => used.has(source.n)),
+        answer,
+        sources: order
+          .map((n) => citedSources.find((source) => source.n === n)!)
+          .map((source) => ({ ...source, n: renumber.get(source.n)! })),
         mode: "live",
         model,
       });
@@ -175,7 +186,7 @@ ${notes.map((note, index) => `[${index + 1}] ${note}`).join("\n")}`,
         answer:
           sources.length > 0
             ? "I can't put together a full answer right now, but here is what the records say on this."
-            : "I can't answer that right now, and nothing in the released material matches it directly.",
+            : "I can't answer that right now, and none of the documents we have cover it.",
         sources: citedSources.filter((source) => !String(source.id).startsWith("context-")),
         mode: "stored",
       });

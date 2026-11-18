@@ -7,6 +7,7 @@ type RiskRow = {
   id: string;
   title: string;
   description: string;
+  observed?: string | null;
   inference?: string | null;
   recommended_action?: string | null;
   severity: string;
@@ -20,7 +21,7 @@ export async function GET() {
     const supabase = createServerSupabaseClient();
     const asOf = new Date().toISOString();
     const { data: rows, error } = await selectRiskItems(
-      "id, risk_key, title, description, inference, recommended_action, polarity, area, owner_employee_key, evidence_count, severity, likelihood, status, confidence, origin, first_observed_at, last_reviewed_at",
+      "id, risk_key, title, description, observed, inference, recommended_action, polarity, area, owner_employee_key, evidence_count, severity, likelihood, status, confidence, origin, first_observed_at, last_reviewed_at",
       (select) =>
         supabase.from("risk_items").select(select).in("status", ["open", "watch"]).limit(40),
     );
@@ -34,6 +35,7 @@ export async function GET() {
       ...risk,
       title: humanizeConcernText(risk.title),
       description: humanizeConcernText(risk.description),
+      observed: risk.observed ? humanizeConcernText(risk.observed) : null,
       inference: risk.inference ? humanizeConcernText(risk.inference) : null,
       recommended_action: risk.recommended_action ? humanizeConcernText(risk.recommended_action) : null,
     }));

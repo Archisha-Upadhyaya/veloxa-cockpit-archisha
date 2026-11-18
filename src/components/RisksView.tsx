@@ -9,6 +9,7 @@ type Finding = {
   risk_key: string;
   title: string;
   description: string;
+  observed?: string | null;
   inference?: string | null;
   recommended_action?: string | null;
   polarity?: string | null;
@@ -49,7 +50,9 @@ export default function RisksView() {
       <span className="font-serif text-xl text-[var(--muted)]">{String(index + 1).padStart(2, "0")}</span>
       <span className="min-w-0">
         <span className="block text-[17px] font-semibold leading-snug">{finding.title}</span>
-        {finding.inference && <span className="mt-2 block max-w-3xl text-sm leading-6 text-[var(--muted)]">{finding.inference}</span>}
+        {(finding.observed ?? finding.inference) && (
+          <span className="mt-2 block max-w-3xl text-sm leading-6 text-[var(--muted)]">{finding.observed ?? finding.inference}</span>
+        )}
         {finding.recommended_action && (
           <span className="next-step mt-3 block max-w-3xl"><span>Next</span>{finding.recommended_action}</span>
         )}
@@ -85,11 +88,14 @@ export default function RisksView() {
         {!loading && concerns.length === 0 && <p className="text-sm text-[var(--muted)]">Nothing open here.</p>}
       </div>
 
-      <p id="going-well" className="section-eyebrow mt-12 scroll-mt-28 text-[var(--good)]">Going well · {positives.length}</p>
-      <div className="mt-3 flex flex-col gap-3">
-        {positives.map((finding, index) => row(finding, index, true))}
-        {!loading && positives.length === 0 && <p className="text-sm text-[var(--muted)]">Nothing recorded yet.</p>}
-      </div>
+      {positives.length > 0 && (
+        <>
+          <p id="going-well" className="section-eyebrow mt-12 scroll-mt-28 text-[var(--good)]">Going well · {positives.length}</p>
+          <div className="mt-3 flex flex-col gap-3">
+            {positives.map((finding, index) => row(finding, index, true))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

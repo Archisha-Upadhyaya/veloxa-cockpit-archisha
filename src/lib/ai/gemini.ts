@@ -13,6 +13,7 @@ type GeminiResponse = {
  * 2026-11-18:
  *   gemini-3.8-flash / 3.5-flash  → listed but frequently 503 (high demand);
  *                                   3.5 also timed out, so it is not chained
+ *   gemini-3-flash-preview        → available, stronger than lite; analysis fallback
  *   gemini-3.1-flash-lite         → reliably available, ~1.5s
  *   pro / gemini-4-* / 3.7-flash  → 429, not in this key's quota
  *   gemini-2.5-*                  → 404, retired for new keys
@@ -21,7 +22,7 @@ type GeminiResponse = {
  * GEMINI_ANALYSIS_MODELS / GEMINI_CHAT_MODELS (comma-separated).
  */
 const DEFAULT_CHAINS = {
-  analysis: ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
+  analysis: ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
   chat: ["gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.8-flash"],
 } as const;
 
@@ -58,7 +59,7 @@ async function callModel(
   model: string,
   prompt: string,
   systemInstruction: string,
-  options: { maxOutputTokens: number; timeoutMs: number; json: boolean },
+  options: { maxOutputTokens: number; timeoutMs: number; json: boolean; schema?: object },
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
@@ -75,7 +76,9 @@ async function callModel(
           generationConfig: {
             temperature: 0.15,
             maxOutputTokens: options.maxOutputTokens,
-            ...(options.json ? { responseMimeType: "application/json" } : {}),
+            ...(options.json || options.schema ? { responseMimeType: "application/json" } : {}),
+            // Structured output: the API guarantees JSON of this shape.
+            ...(options.schema ? { responseSchema: options.schema } : {}),
           },
         }),
         signal: controller.signal,
@@ -120,6 +123,10 @@ export async function generateWithFailover(
     maxOutputTokens?: number;
     timeoutMs?: number;
     json?: boolean;
+    /** Gemini response schema (OpenAPI subset) for guaranteed-shape JSON. */
+    schema?: object;
+    /** Optional check on the text; a failure moves on to the next model. */
+    validate?: (text: string) => boolean;
   } = {},
 ) {
   const failures: string[] = [];
@@ -129,7 +136,11 @@ export async function generateWithFailover(
         maxOutputTokens: options.maxOutputTokens ?? 320,
         timeoutMs: options.timeoutMs ?? 12_000,
         json: options.json ?? false,
+        schema: options.schema,
       });
+      if (options.validate && !options.validate(text)) {
+        throw new ModelError(`${model}: response failed validation`, true);
+      }
       if (failures.length > 0) {
         console.warn(`Gemini failover used ${model} after: ${failures.join("; ")}`);
       }
@@ -151,6 +162,7 @@ export async function generateGroundedAnswer(
     maxOutputTokens?: number;
     timeoutMs?: number;
     json?: boolean;
+    schema?: object;
   } = {},
 ) {
   return (await generateWithFailover(prompt, systemInstruction, options)).text;

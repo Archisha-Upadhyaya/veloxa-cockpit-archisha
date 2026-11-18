@@ -46,6 +46,50 @@ export type AnalyzedRisk = Omit<ParsedFinding, "evidence" | "area" | "owner"> & 
 
 const SEVERITY_ORDER = ["low", "medium", "high", "critical"] as const;
 
+const STRING = { type: "STRING" };
+/** Gemini structured-output schema matching riskSchema. */
+const FINDINGS_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    takeaways: {
+      type: "ARRAY",
+      items: { type: "OBJECT", properties: { ref: STRING, takeaway: STRING }, required: ["ref", "takeaway"] },
+    },
+    findings: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          polarity: { type: "STRING", enum: ["concern", "positive"] },
+          title: STRING,
+          observed: STRING,
+          inference: STRING,
+          recommended_action: STRING,
+          severity: { type: "STRING", enum: ["low", "medium", "high", "critical"] },
+          likelihood: { type: "STRING", enum: ["low", "medium", "high", "unknown"] },
+          confidence: { type: "STRING", enum: ["low", "medium", "high"] },
+          area: STRING,
+          owner: STRING,
+          evidence: {
+            type: "ARRAY",
+            items: { type: "OBJECT", properties: { ref: STRING, why: STRING }, required: ["ref", "why"] },
+          },
+        },
+        required: ["polarity", "title", "observed", "inference", "recommended_action", "severity", "likelihood", "confidence", "evidence"],
+      },
+    },
+  },
+  required: ["takeaways", "findings"],
+};
+
+function parsesAsFindings(text: string) {
+  try {
+    return riskSchema.safeParse(JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? "")).success;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Severity is capped by how well the finding is supported: a concern backed
  * by little evidence, or held at low confidence, can never rank as high.
@@ -258,11 +302,15 @@ What to return:
 - severity reflects business impact if true; do not inflate it.
 
 Rules:
-- One finding per underlying issue; merge duplicates across files.
+- One finding per underlying issue; merge duplicates of the same issue across files, but never merge different issues. A payroll control gap, a delivery slip, a spend mismatch and a resignation are four findings, even if they are related. With this many records, expect roughly 5-10 findings.
 - Do not invent owners, causes, deadlines or dates. Only use dates that appear in the evidence.
-- Do not call an employee overloaded or underused unless the evidence compares workload, leave, tasks or explicit statements.
+- Do not call an employee overloaded or underused unless the evidence compares workload, leave, tasks or explicit statements. When it does (e.g. one person on every on-call week), say so plainly and name them.
+- Name people. When a record names someone, use their full name from the directory, never "one individual" or "a team member". Records spell names inconsistently (auto-transcripts, short names, initials, email handles, typos such as "Snehal" or "Pria"): match them to the directory by role and team, and only when the spelling in the record differs from the directory name, say so once ("Snehal in the incident log is Sneha Kulkarni, the only SRE").
+- Explain the "so what" in plain words: what would break, slip or cost money if nothing changes.
 - recommended_action must never be generic ("review with the owner", "confirm the status").
 - Write for a busy CEO: plain words, no jargon, no table rows, file names or chunk ids.
+- Titles: sentence case, plain words, at most 10 words, and say what is actually wrong or right — e.g. "Board and call figures for burn differ tenfold", "Atlas launch moved from 15 Sep to 15 Dec". Never a label like "Financial reporting inconsistencies" or "Engineering delivery risk".
+- Write like a sharp chief of staff talking to the CEO: short sentences, concrete numbers and names, no buzzwords ("synergy", "alignment", "leverage", "robust", "holistic", "operational excellence").
 - Never mention individual salaries, payroll rows, or anyone's pay.
 
 ${directory.length ? `Company directory (id · name · title · department):
@@ -275,7 +323,14 @@ ${[...byRef.entries()].map(([ref, item]) => `[${ref}] [${item.tier ?? "primary"}
     const { text: raw, model } = await generateWithFailover(
       prompt,
       RISK_ANALYSIS_SYSTEM,
-      { task: "analysis", maxOutputTokens: 12_000, timeoutMs: 60_000, json: true },
+      {
+        task: "analysis",
+        maxOutputTokens: 12_000,
+        timeoutMs: 90_000,
+        schema: FINDINGS_RESPONSE_SCHEMA,
+        // A malformed answer moves on to the next model instead of failing.
+        validate: parsesAsFindings,
+      },
     );
     const json = raw.match(/\{[\s\S]*\}/)?.[0];
     if (!json) throw new Error("Risk analysis did not return JSON.");

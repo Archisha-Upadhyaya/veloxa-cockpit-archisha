@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 
 type Person = {
   empId: string;
@@ -25,6 +26,24 @@ type Person = {
   source: string | null;
   mentions: Array<{ summary: string; source: string; date: string | null }>;
   mentionCount: number;
+  pendingChanges?: Array<{ to: string; when: string; status: string; reason: string | null }>;
+  isPersona?: boolean;
+  presence?: { documents: number; mentions: number };
+};
+
+type OrgChange = {
+  id: string;
+  scope_type: "employee" | "department";
+  scope_key: string;
+  new_manager_key: string | null;
+  new_manager_title: string | null;
+  effective_from: string | null;
+  effective_note: string | null;
+  status: "tentative" | "confirmed" | "cancelled";
+  source: string | null;
+  applied: boolean;
+  reason: string | null;
+  affects: string[];
 };
 
 /** answer is null while the reply is on its way. */
@@ -42,14 +61,14 @@ function departmentColor(department: string, all: string[]) {
 }
 
 function provenanceLabel(provenance: string) {
-  if (provenance === "grounded" || provenance === "grounded_inference") return "from what they know";
-  if (provenance === "profile_inference") return "from their role";
-  if (provenance === "recorded_context") return "from a previous conversation";
+  if (provenance === "grounded" || provenance === "grounded_inference") return "based on company records";
+  if (provenance === "profile_inference") return "based on their role";
+  if (provenance === "recorded_context") return "from an earlier conversation";
   if (provenance === "policy_refusal") return "confidential";
   if (provenance === "conversation") return "in conversation";
-  if (provenance === "no_visibility") return "not known";
+  if (provenance === "no_visibility") return "outside their knowledge";
   if (provenance === "no_record") return "no record";
-  return "not certain";
+  return "unverified";
 }
 
 function statusTone(person: Person) {
@@ -58,16 +77,12 @@ function statusTone(person: Person) {
   return "bg-[var(--accent-soft)] text-[var(--accent)]";
 }
 
-export default function PeopleDirectory({
-  initialDepartment = "All",
-  initialChat,
-  initialTopic,
-}: {
-  initialDepartment?: string;
-  /** Opened from a concern or health tile: start a chat with this person. */
-  initialChat?: string;
-  initialTopic?: string;
-}) {
+export default function PeopleDirectory() {
+  // Deep links: ?department=Finance, or ?chat=VX003&about=<topic> from a concern.
+  const searchParams = useSearchParams();
+  const initialDepartment = searchParams.get("department") ?? "All";
+  const initialChat = searchParams.get("chat") ?? undefined;
+  const initialTopic = searchParams.get("about") ?? undefined;
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +98,37 @@ export default function PeopleDirectory({
   const [conversation, setConversation] = useState<Message[]>([]);
   const [asking, setAsking] = useState(false);
   const threadEnd = useRef<HTMLDivElement>(null);
+  const [changes, setChanges] = useState<OrgChange[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [editingChange, setEditingChange] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ manager: string; date: string }>({ manager: "", date: "" });
+  const [savingChange, setSavingChange] = useState(false);
+
+  async function reloadDirectory() {
+    const response = await fetch("/api/people");
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Unable to load people.");
+    setPeople(result.people ?? []);
+    setChanges(result.changes ?? []);
+    setWarnings(result.warnings ?? []);
+  }
+
+  async function updateChange(id: string, update: Record<string, unknown>) {
+    setSavingChange(true);
+    try {
+      const response = await fetch(`/api/org-changes/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(update),
+      });
+      if (response.ok) {
+        setEditingChange(null);
+        await reloadDirectory();
+      }
+    } finally {
+      setSavingChange(false);
+    }
+  }
 
   useEffect(() => {
     fetch("/api/people")
@@ -90,6 +136,8 @@ export default function PeopleDirectory({
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Unable to load people.");
         setPeople(result.people ?? []);
+        setChanges(result.changes ?? []);
+        setWarnings(result.warnings ?? []);
       })
       .catch((reason: unknown) =>
         setError(reason instanceof Error ? reason.message : "Unable to load people."),
@@ -109,8 +157,12 @@ export default function PeopleDirectory({
     window.history.replaceState(null, "", url);
   }
 
+  // Teams only: a "department" made up of just the CEO (Leadership) is not a team.
   const departments = useMemo(
-    () => Array.from(new Set(people.map((person) => person.department))).sort(),
+    () =>
+      Array.from(new Set(people.map((person) => person.department)))
+        .filter((department) => people.some((person) => person.department === department && person.level > 0))
+        .sort(),
     [people],
   );
   const counts = useMemo(() => {
@@ -202,6 +254,7 @@ export default function PeopleDirectory({
           <div><dt>Active</dt><dd>{loading ? "—" : activeCount}</dd></div>
           <div><dt>On notice</dt><dd>{loading ? "—" : onNotice}</dd></div>
           <div><dt>Teams</dt><dd>{loading ? "—" : departments.length}</dd></div>
+          <div><dt>Chat personas</dt><dd>{loading ? "—" : people.filter((person) => person.isPersona).length}</dd></div>
         </dl>
       </header>
 
@@ -243,6 +296,94 @@ export default function PeopleDirectory({
         </div>
       </div>
 
+      {(changes.length > 0 || warnings.length > 0) && (
+        <section className="mb-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
+          <p className="section-eyebrow text-[var(--accent)]">Reporting-line changes</p>
+          <div className="mt-3 flex flex-col gap-3">
+            {changes.map((change) => (
+              <div key={change.id} className="rounded-xl bg-[var(--surface)] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">
+                      {change.scope_type === "department" ? `${change.scope_key} team` : change.affects.join(", ")}
+                      {" → "}
+                      {people.find((person) => person.empId === change.new_manager_key)?.name ?? change.new_manager_title ?? "new manager"}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {change.effective_from ?? change.effective_note ?? "Date not set"}
+                      {change.affects.length > 0 && change.scope_type === "department" ? ` · moves ${change.affects.join(", ")} and their team` : ""}
+                      {change.source ? ` · from ${change.source}` : ""}
+                    </p>
+                  </div>
+                  <span className="flex items-center gap-2">
+                    <span className={change.applied ? "pill-good" : change.status === "confirmed" ? "sev-pill sev-pill-medium" : "type-pill"}>
+                      {change.applied ? "in effect" : change.status}
+                    </span>
+                    {!change.applied && (
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => {
+                          setEditingChange(editingChange === change.id ? null : change.id);
+                          setDraft({ manager: change.new_manager_key ?? "", date: change.effective_from ?? "" });
+                        }}
+                      >
+                        Update
+                      </button>
+                    )}
+                  </span>
+                </div>
+                {!change.applied && change.reason && <p className="mt-2 text-xs text-[var(--warning)]">Not applied: {change.reason}</p>}
+                {editingChange === change.id && (
+                  <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[var(--line)] pt-3">
+                    <label className="text-xs text-[var(--muted)]">
+                      New manager
+                      <select
+                        value={draft.manager}
+                        onChange={(event) => setDraft({ ...draft, manager: event.target.value })}
+                        className="mt-1 block rounded-lg border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 text-sm text-[var(--ink)]"
+                      >
+                        <option value="">{change.new_manager_title ?? "Not appointed yet"}</option>
+                        {people.filter((person) => person.isActive).map((person) => (
+                          <option key={person.empId} value={person.empId}>{person.name} · {person.title}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-xs text-[var(--muted)]">
+                      Effective from
+                      <input
+                        type="date"
+                        value={draft.date}
+                        onChange={(event) => setDraft({ ...draft, date: event.target.value })}
+                        className="mt-1 block rounded-lg border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 text-sm text-[var(--ink)]"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={savingChange}
+                      className="talk-button"
+                      onClick={() => updateChange(change.id, {
+                        new_manager_key: draft.manager || null,
+                        effective_from: draft.date || null,
+                        status: draft.manager && draft.date ? "confirmed" : "tentative",
+                      })}
+                    >
+                      {draft.manager && draft.date ? "Confirm change" : "Save as tentative"}
+                    </button>
+                    <button type="button" disabled={savingChange} className="ghost-button" onClick={() => updateChange(change.id, { status: "cancelled" })}>
+                      Cancel change
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+            {warnings.map((warning) => (
+              <p key={warning} className="text-xs text-[var(--warning)]">⚠ {warning}</p>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="people-table">
         <div className="people-row people-row-head" aria-hidden="true">
           <span>Person</span>
@@ -251,7 +392,7 @@ export default function PeopleDirectory({
           <span>Joined</span>
           <span>Location</span>
           <span>Status</span>
-          <span>In records</span>
+          <span>Mentioned in</span>
           <span />
         </div>
         {loading && <p className="people-empty">Loading people…</p>}
@@ -286,8 +427,18 @@ export default function PeopleDirectory({
                     {initials(person.name)}
                   </span>
                   <span className="min-w-0">
-                    <span className="person-name">{person.name}</span>
-                    <span className="person-title">{person.title} · {person.department}</span>
+                    <span className="person-name">
+                      {person.name}
+                      {(person.pendingChanges?.length ?? 0) > 0 && (
+                        <span className="ml-2 rounded-full bg-[var(--warn-soft)] px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-[.08em] text-[var(--warning)]" title={person.pendingChanges!.map((change) => `→ ${change.to} (${change.when})`).join("; ")}>
+                          moving
+                        </span>
+                      )}
+                    </span>
+                    <span className="person-title">
+                      {person.title}
+                      {person.title.toLowerCase().includes(person.department.toLowerCase()) ? "" : ` · ${person.department}`}
+                    </span>
                   </span>
                 </span>
                 <span className="people-cell">
@@ -317,7 +468,7 @@ export default function PeopleDirectory({
                   )}
                 </span>
                 <span className="people-cell">
-                  {person.mentionCount ? `${person.mentionCount} ${person.mentionCount === 1 ? "mention" : "mentions"}` : "—"}
+                  {person.presence?.documents ? `${person.presence.documents} ${person.presence.documents === 1 ? "document" : "documents"}` : "—"}
                 </span>
                 <span className="flex justify-end">
                   <button
@@ -325,13 +476,15 @@ export default function PeopleDirectory({
                       event.stopPropagation();
                       openChat(person);
                     }}
-                    disabled={!person.isActive || (person.tier === 0 && person.reports.length > 0)}
+                    disabled={!person.isPersona}
                     title={
                       person.tier === 0 && person.reports.length > 0
                         ? "That's you"
-                        : person.isActive
-                          ? `Chat with ${person.name}`
-                          : "No longer with the company"
+                        : !person.isActive
+                          ? "No longer with the company"
+                          : person.isPersona
+                            ? `Chat with ${person.name}`
+                            : `Not a chat persona: appears in ${person.presence?.documents ?? 0} ${person.presence?.documents === 1 ? "document" : "documents"}`
                     }
                     className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -382,7 +535,7 @@ export default function PeopleDirectory({
                         ))}
                       </ul>
                     ) : (
-                      <p className="mt-1 text-sm text-[var(--muted)]">Not named in any released document yet.</p>
+                      <p className="mt-1 text-sm text-[var(--muted)]">Not mentioned in any document yet.</p>
                     )}
                   </div>
                 </div>
@@ -423,7 +576,7 @@ export default function PeopleDirectory({
             <div className="chat-thread thin-scrollbar">
               {conversation.length === 0 && !asking && (
                 <p className="chat-hint">
-                  Ask {chatPerson.name.split(" ")[0]} anything. Answers come only from released records; if nothing covers it, they&apos;ll say so.
+                  Ask {chatPerson.name.split(" ")[0]} anything. They only know what&apos;s in the company&apos;s documents, and will tell you if something isn&apos;t covered.
                 </p>
               )}
               {conversation.map((entry, index) => (

@@ -1,6 +1,7 @@
 import { selectRiskItems } from "@/lib/data/fallback";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { filterEvidenceAsOf } from "@/lib/analysis/risk";
+import { loadDirectory, ownerFor } from "@/lib/people/directory";
 import {
   dedupeEvidenceSummaries,
   extractEvidenceSnippet,
@@ -89,13 +90,11 @@ export async function GET(
         .lte("evidence_items.available_at", asOf);
     let evidence = await evidenceQuery(true);
     if (evidence.error?.code === "42703") evidence = await evidenceQuery(false);
-    const owner = risk.data.owner_employee_key
-      ? await supabase
-          .from("employee_profiles")
-          .select("employee_key, display_name, role_title, department")
-          .eq("employee_key", risk.data.owner_employee_key)
-          .maybeSingle()
-      : null;
+    const resolvedOwner = ownerFor(
+      await loadDirectory(supabase),
+      risk.data.owner_employee_key,
+      (risk.data as { area?: string | null }).area,
+    );
     if (evidence.error) throw new Error(evidence.error.message);
 
     const rawRecords = (evidence.data ?? []) as unknown as EvidenceRow[];
@@ -118,7 +117,9 @@ export async function GET(
           "Source record";
         const locator = record.evidence_items?.source_locations?.locator ?? "";
         const snippet = extractEvidenceSnippet(rawText, {
-          context: contextText,
+          // The "why" names exactly what in this record matters, so it picks
+          // the right lines from long records (e.g. a table profile).
+          context: `${record.rationale ?? ""} ${record.rationale ?? ""} ${contextText}`,
           sourceTitle,
           locator,
         });
@@ -154,12 +155,12 @@ export async function GET(
 
     return Response.json({
       risk: concern,
-      owner: owner?.data
+      owner: resolvedOwner
         ? {
-            empId: owner.data.employee_key,
-            name: owner.data.display_name,
-            title: owner.data.role_title,
-            department: owner.data.department,
+            empId: resolvedOwner.empId,
+            name: resolvedOwner.name,
+            title: resolvedOwner.title,
+            department: resolvedOwner.department,
           }
         : null,
       evidence: dedupedSnippets.sort((left, right) => (left.tier === "secondary" ? 1 : 0) - (right.tier === "secondary" ? 1 : 0)),

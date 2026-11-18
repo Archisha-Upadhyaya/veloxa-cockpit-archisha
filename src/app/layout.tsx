@@ -7,8 +7,8 @@ const geist = Geist({ variable: "--font-geist", subsets: ["latin"] });
 const mono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Veloxa — executive intelligence",
-  description: "A calm, evidence-grounded view of Veloxa Technologies.",
+  title: { template: "%s · Veloxa", default: "Veloxa" },
+  description: "Your daily brief on Veloxa: what is going wrong, what is going well, and who to talk to.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

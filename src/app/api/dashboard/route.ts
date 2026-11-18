@@ -1,6 +1,7 @@
 import { selectRiskItems } from "@/lib/data/fallback";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { dedupeAndRankRisks } from "@/lib/analysis/risk";
+import { loadDirectory, ownerFor, realDepartments } from "@/lib/people/directory";
 import { friendlySourceTitle, humanizeConcernText } from "@/lib/evidence/snippet";
 
 type RiskRow = {
@@ -12,6 +13,8 @@ type RiskRow = {
   inference?: string | null;
   recommended_action?: string | null;
   polarity?: string | null;
+  area?: string | null;
+  owner_employee_key?: string | null;
   severity: string;
   likelihood: string | null;
   confidence: string | null;
@@ -74,7 +77,10 @@ export async function GET() {
       const current = new Set((links.data ?? []).map((link) => link.risk_id));
       rows = rows.filter((risk) => current.has(risk.id));
     }
-    const findings = dedupeAndRankRisks(
+    // The CEO is the top of the reporting tree as of today (dated
+    // reporting-line changes applied), not a fixed id.
+    const directory = await loadDirectory(supabase);
+    const findingsRanked = dedupeAndRankRisks(
       rows.map((risk) => ({
         ...risk,
         title: humanizeConcernText(risk.title),
@@ -86,21 +92,18 @@ export async function GET() {
       })),
     );
 
+    // Owners that have left or moved resolve to the current head of the area.
+    const findings = findingsRanked.map((finding) => ({
+      ...finding,
+      owner_employee_key: ownerFor(directory, finding.owner_employee_key, finding.area)?.empId ?? null,
+    }));
     const activePeople = (people.data ?? []).filter((person) => person.is_active);
-    // The CEO is the person at the top of the reporting tree: no manager of
-    // their own, and at least one person reporting to them. Without reporting
-    // data (directory not yet synced) there is no CEO to greet.
-    const managerOf = (person: (typeof activePeople)[number]) =>
-      (person.profile as { managerKey?: string | null } | null)?.managerKey ?? null;
-    const ceo =
-      activePeople.find(
-        (person) =>
-          !managerOf(person) &&
-          activePeople.some((other) => managerOf(other) === person.employee_key),
-      ) ?? null;
+    const ceo = directory.find((person) => person.level === 0 && person.isActive && person.reports.length > 0) ?? null;
+    // Teams only: a "department" that is just the CEO is not a team.
+    const teams = new Set(realDepartments(directory));
     const departments = activePeople.reduce<Record<string, number>>((counts, person) => {
       const name = person.department ?? "Unassigned";
-      counts[name] = (counts[name] ?? 0) + 1;
+      if (teams.has(name)) counts[name] = (counts[name] ?? 0) + 1;
       return counts;
     }, {});
 
@@ -111,7 +114,7 @@ export async function GET() {
     const latestDay = sources[0]?.release_day ?? null;
 
     return Response.json({
-      ceo: ceo ? { name: ceo.display_name, title: ceo.role_title } : null,
+      ceo: ceo ? { name: ceo.name, title: ceo.title } : null,
       stats: {
         people: activePeople.length,
         evidence: evidence.count ?? 0,
@@ -122,6 +125,11 @@ export async function GET() {
       positives: findings.filter((finding) => finding.polarity === "positive"),
       latestDay,
       newSources: sources.filter((source) => source.release_day === latestDay),
+      // The brief is out of date when documents arrived after the last
+      // successful analysis (or none has run yet).
+      briefStale:
+        !lastRun.data?.completed_at ||
+        sources.some((source) => source.available_at && source.available_at > lastRun.data!.completed_at!),
       lastAnalysis: lastRun.data
         ? { at: lastRun.data.completed_at, model: lastRun.data.model_version }
         : null,

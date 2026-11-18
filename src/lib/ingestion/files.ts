@@ -8,6 +8,7 @@ import { simpleParser } from "mailparser";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { isSensitiveEvidence } from "@/lib/evidence/snippet";
+import { profileTable } from "@/lib/ingestion/table-profile";
 
 const execFileAsync = promisify(execFile);
 const supportedExtensions = new Set([".csv", ".docx", ".eml", ".pdf", ".txt", ".xlsx"]);
@@ -55,6 +56,12 @@ function availableAt(relativePath: string, fallback: Date) {
   return day ? `${day}T10:00:00+05:30` : fallback.toISOString();
 }
 
+function emailSubject(filePath: string, text: string) {
+  if (path.extname(filePath).toLowerCase() !== ".eml") return null;
+  const subject = text.match(/^Subject:\s*(.+)$/m)?.[1]?.trim();
+  return subject ? `Email: ${subject}` : null;
+}
+
 async function extractText(filePath: string, buffer: Buffer) {
   const extension = path.extname(filePath).toLowerCase();
   if (extension === ".docx") {
@@ -63,11 +70,18 @@ async function extractText(filePath: string, buffer: Buffer) {
   if (extension === ".xlsx") {
     const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
     return workbook.SheetNames.map((name) => {
-      const sheet = workbook.Sheets[name];
-      return `Sheet: ${name}\n${XLSX.utils.sheet_to_csv(sheet)}`;
+      const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[name]);
+      const profile = profileTable(csv, `${path.basename(filePath)} / ${name}`);
+      return `${profile ? `${profile}\n\n` : ""}Sheet: ${name}\n${csv}`;
     }).join("\n\n");
   }
-  if (extension === ".csv" || extension === ".txt") return buffer.toString("utf8");
+  if (extension === ".csv") {
+    const csv = buffer.toString("utf8");
+    const profile = profileTable(csv, path.basename(filePath));
+    // The profile comes first so it is the first evidence chunk.
+    return profile ? `${profile}\n\nRaw rows:\n${csv}` : csv;
+  }
+  if (extension === ".txt") return buffer.toString("utf8");
   if (extension === ".eml") {
     const parsed = await simpleParser(buffer);
     const addressText = (value: typeof parsed.from | typeof parsed.to) =>
@@ -136,9 +150,9 @@ function chunks(text: string, size = 1800, overlap = 220) {
 
 export async function readDataRoom(): Promise<ParsedFile[]> {
   const root = dataRoomRoot();
-  // Scope is configurable; by default only the Day 1 and Day 2 packs are
+  // Scope is configurable; by default the Day 1-3 packs are
   // ingested. availableAt still gates visibility inside that scope.
-  const releaseDays = (process.env.VELOXA_RELEASE_DAYS ?? "Day1,Day2")
+  const releaseDays = (process.env.VELOXA_RELEASE_DAYS ?? "Day1,Day2,Day3")
     .split(",")
     .map((day) => day.trim())
     .filter(Boolean);
@@ -176,7 +190,8 @@ export async function readDataRoom(): Promise<ParsedFile[]> {
       absolutePath,
       relativePath,
       contentHash: createHash("sha256").update(buffer).digest("hex"),
-      title: path.basename(absolutePath),
+      // Emails are titled by their subject; everything else by file name.
+      title: emailSubject(absolutePath, text) ?? path.basename(absolutePath),
       tier: relativePath.includes("/transcripts/") ? "secondary" : "primary",
       sourceType: sourceType(absolutePath),
       text,

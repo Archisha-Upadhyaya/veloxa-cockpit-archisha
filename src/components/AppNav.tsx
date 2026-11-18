@@ -6,8 +6,8 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/", label: "Overview", hint: "signal" },
   { href: "/people", label: "People", hint: "directory" },
-  { href: "/risks", label: "Risks", hint: "attention" },
-  { href: "/sources", label: "Sources", hint: "evidence" },
+  { href: "/risks", label: "Concerns", hint: "attention" },
+  { href: "/sources", label: "Documents", hint: "evidence" },
 ];
 
 export default function AppNav() {
@@ -23,7 +23,7 @@ export default function AppNav() {
               Veloxa
             </span>
             <span className="block text-[10px] uppercase tracking-[0.18em] text-[var(--muted)]">
-              executive intelligence
+              company brief
             </span>
           </span>
         </Link>
@@ -48,10 +48,7 @@ export default function AppNav() {
           })}
         </nav>
 
-        <div className="hidden items-center gap-2 text-xs text-[var(--muted)] sm:flex">
-          <span className="font-serif text-lg text-[var(--accent)]">01</span>
-          <span>company view</span>
-        </div>
+        <span className="hidden w-[120px] sm:block" aria-hidden="true" />
       </div>
     </header>
   );

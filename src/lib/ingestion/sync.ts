@@ -65,6 +65,7 @@ export async function syncDataRoom(supabase: SupabaseClient) {
         .from("source_documents")
         .update({
           ingestion_status: "ready",
+          title: file.title,
           release_day: file.releaseDay,
           available_at: file.availableAt,
           metadata: {

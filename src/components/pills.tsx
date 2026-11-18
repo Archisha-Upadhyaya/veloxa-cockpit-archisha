@@ -26,7 +26,7 @@ export function ConfidencePill({ confidence }: { confidence?: string | null }) {
       {[1, 2, 3].map((dot) => (
         <span key={dot} className={dot <= level ? "on" : ""} />
       ))}
-      {confidence ?? "low"}
+      {confidence ?? "low"} confidence
     </span>
   );
 }

@@ -15,11 +15,12 @@ export default function SourcesView() {
         <article id={source.id} key={source.id} className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 transition hover:border-[var(--accent)]">
           <p className="font-mono text-xs uppercase tracking-[.12em] text-[var(--accent)]">{source.source_type}</p>
           <h2 className="mt-3 text-base font-semibold">{source.title}</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">Released {source.release_day}</p>
-          <p className="mt-4 text-xs text-[var(--muted)]">Available to retrieval from {new Date(source.available_at).toLocaleDateString()}</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Added {new Date(source.available_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+          </p>
         </article>
       ))}
-      {sources.length === 0 && <p className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 text-sm text-[var(--muted)]">No source records are connected yet.</p>}
+      {sources.length === 0 && <p className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 text-sm text-[var(--muted)]">No documents loaded yet.</p>}
     </div>
   );
 }

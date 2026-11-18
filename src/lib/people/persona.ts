@@ -5,7 +5,12 @@ import { personFacts, type DirectoryPerson } from "@/lib/people/directory";
 
 type SupabaseClient = ReturnType<typeof createServerSupabaseClient>;
 
-const PERSONA_VERSION = "records-v1";
+const PERSONA_VERSION = "records-v2";
+
+/** A persona describes who someone reports to, so it is tied to that line. */
+function personaVersion(person: DirectoryPerson) {
+  return `${PERSONA_VERSION}:${person.managerId ?? "top"}:${person.title}`;
+}
 
 const personaSchema = z.object({
   voice: z.string().min(20).max(400),
@@ -36,7 +41,7 @@ export async function getPersona(
     .select("voice_profile, persona_version")
     .eq("employee_profile_id", employeeProfileId)
     .maybeSingle();
-  if (stored.data?.persona_version === PERSONA_VERSION) {
+  if (stored.data?.persona_version === personaVersion(person)) {
     const parsed = personaSchema.safeParse(stored.data.voice_profile);
     if (parsed.success) return parsed.data;
   }
@@ -72,7 +77,7 @@ Return:
         known_topics: persona.knows_about,
         known_unknowns: persona.would_not_know,
         perspective_rules: persona.speech_habits,
-        persona_version: PERSONA_VERSION,
+        persona_version: personaVersion(person),
       },
       { onConflict: "employee_profile_id" },
     );

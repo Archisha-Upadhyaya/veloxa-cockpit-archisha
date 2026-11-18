@@ -114,8 +114,8 @@ NEXT_PUBLIC_APP_URL=https://your-app.example.com
 fallback for existing deployments, but new deployments should use
 `SUPABASE_URL`. The app does not need a browser-side Supabase client.
 
-What gets ingested: the Day 1 and Day 2 release packs (`VELOXA_RELEASE_DAYS`,
-default `Day1,Day2`). Data-room files are primary evidence; call transcripts are
+What gets ingested: the Day 1, 2 and 3 release packs (`VELOXA_RELEASE_DAYS`,
+default `Day1,Day2,Day3`). Data-room files are primary evidence; call transcripts are
 secondary. CEO voice notes (`T6*`) are never ingested.
 
 Models: each task has its own failover chain (`GEMINI_ANALYSIS_MODELS`,

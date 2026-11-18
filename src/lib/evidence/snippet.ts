@@ -852,6 +852,8 @@ export function humanizeConcernText(value: string) {
     .replace(/\b(?:chunk|row|sheet)[- ]?\d+\b/gi, "")
     .replace(/\bthe (?:current |loaded )?corpus\b/gi, "the released material")
     .replace(/\bInference:\s*/g, "What this means: ")
+    // "Sneha Kulkarni in the incident log is Sneha Kulkarni, ..." → "Sneha Kulkarni, ..."
+    .replace(/\b([A-Z][a-z]+(?: [A-Z][a-z]+)+) in the [^,.]{2,40}? is \1\b,?/g, "$1,")
     .replace(/\s+/g, " ")
     .replace(/(^|[.!?:]\s+)([a-z])/g, (_match, prefix: string, letter: string) => `${prefix}${letter.toUpperCase()}`)
     .trim();

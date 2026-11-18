@@ -42,6 +42,8 @@ export default function RiskDetailView({ riskKey }: { riskKey: string }) {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Unable to load this item.");
         setRisk(result.risk);
+        // Tab title: the concern itself, so open tabs are easy to tell apart.
+        document.title = `${result.risk.title} · Veloxa`;
         setOwner(result.owner ?? null);
         setEvidence(result.evidence ?? []);
         setNotice(result.notice ?? null);
@@ -61,7 +63,7 @@ export default function RiskDetailView({ riskKey }: { riskKey: string }) {
 
   return (
     <main className="mx-auto w-full max-w-[920px] px-5 py-8 lg:py-10">
-      <Link href="/risks" className="text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]">← All items</Link>
+      <Link href="/risks" className="text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]">← All concerns</Link>
 
       <header className={`mt-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 sm:p-8 ${positive ? "border-l-4 border-l-[var(--good)]" : `detail-header sev-${risk.severity}`}`}>
         <div className="flex flex-wrap items-center gap-1.5">

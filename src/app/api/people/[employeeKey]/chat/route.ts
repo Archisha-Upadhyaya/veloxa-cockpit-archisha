@@ -220,6 +220,7 @@ export async function POST(
             query_embedding: vector,
             match_threshold: Math.min(defaultMatchThreshold(), 0.42),
             match_count: 8,
+            as_of: new Date().toISOString(),
           });
           if (result.error) throw new Error(result.error.message);
           for (const item of (result.data ?? []) as EvidenceRow[]) {
@@ -287,6 +288,12 @@ export async function POST(
     if (ceo && ceo.empId === data.employee_key) {
       return Response.json({ error: "That's your own profile." }, { status: 400 });
     }
+    if (person && !person.isPersona) {
+      return Response.json(
+        { error: `${data.display_name} isn't one of the people you can chat with here.` },
+        { status: 403 },
+      );
+    }
     const voice = person && process.env.GEMINI_API_KEY
       ? await getPersona(supabase, data.id, person)
       : null;
@@ -318,7 +325,7 @@ Be honest. If something above shows a problem, a delay or an open question in yo
 ${history.length ? `The conversation so far:\n${history.map((turn) => `CEO: ${turn.question}\n${firstName}: ${turn.answer}`).join("\n")}\n` : ""}CEO: ${question}
 ${firstName}:`,
           EMPLOYEE_CHAT_SYSTEM,
-          { task: "chat", maxOutputTokens: 500, timeoutMs: 15_000 },
+          { task: "chat", maxOutputTokens: 500, timeoutMs: 10_000 },
         );
         const cleaned = sanitizeEmployeeAnswer(
           addressCeoCorrectly(
