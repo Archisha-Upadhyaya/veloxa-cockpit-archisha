@@ -1,7 +1,7 @@
 # Decision Log --- Veloxa CXO Cockpit
 
-**Status:** Day 1 decisions\
-**Date:** 16 November 2026
+**Status:** Updated through Day 3\
+**Date:** 16 November 2026, last updated 18 November 2026
 
 Decisions record alternatives, rationale, trade-offs and reconsideration
 triggers. Add a new dated entry when a decision changes; do not rewrite
@@ -27,6 +27,10 @@ history silently.
     input and would justify runtime schema validation at that boundary.
 -   **Revisit if:** Background workloads, deployment constraints or
     integrations require an independently scalable worker/API.
+
+-   **Revised 18 Nov 2026:** The "revisit" trigger happened: model output is
+    now part of the pipeline, so Zod validates every LLM response at that
+    boundary (see D-024). The rest of D-001 stands.
 
 ## D-002 --- Supabase PostgreSQL is the canonical data store
 
@@ -120,6 +124,9 @@ history silently.
     access boundary; isolate capabilities, not duplicate the entire
     architecture.
 
+-   **Revised 18 Nov 2026:** The 14 personas are now chosen from the data
+    (see D-026), not fixed by department.
+
 ## D-008 --- Separate factual employee data from invented persona details
 
 -   **Decision:** Keep employee-master facts separate from invented
@@ -135,6 +142,10 @@ history silently.
     boundaries.
 -   **Revisit if:** Later releases add actual employee statements or
     more persona instructions.
+
+-   **Superseded 18 Nov 2026:** The CEO ruled out hand-written data of any
+    kind. Invented persona details and scripted interviews were deleted
+    (see D-020); personas are generated from each person's own records.
 
 ## D-009 --- Enforce payroll confidentiality before retrieval
 
@@ -265,6 +276,10 @@ history silently.
 -   **Revisit if:** The CEO explicitly wants newest-first ordering or a
     different overview count.
 
+-   **Updated 18 Nov 2026:** Still three on the overview, now ranked by
+    severity × confidence (D-022). Positives were removed from the attention
+    map; the health check (D-028) covers what is going well.
+
 ## D-018 --- Sanitise evidence at read time, not only at ingestion
 
 -   **Decision:** Every CEO-facing extract passes through
@@ -293,3 +308,102 @@ history silently.
     RLS. The current app uses only PostgreSQL and pgvector.
 -   **Revisit if:** A feature depends on a Supabase service other than the
     database.
+
+## D-020 --- No hand-written data in the system (18 Nov 2026)
+
+-   **Decision:** Everything shown comes from the release packs, the HR
+    master or live analysis. `scripts/seed-data.ts` and its seed script were
+    deleted; `scripts/purge-seeded.ts` removes the rows they created.
+-   **Alternatives:** Keep the seed as a demo baseline; keep it only for
+    Docker.
+-   **Rationale:** The CEO's instruction, and the seed was already
+    contradicting the source data (wrong join dates, invented colour,
+    scripted answers presented as the employee's words).
+-   **Trade-off:** With no model available and nothing analysed, a fresh
+    database shows no concerns until analysis runs.
+-   **Revisit if:** Never for content; test fixtures stay in `tests/`.
+
+## D-021 --- Fallbacks return stored data, never template text (18 Nov 2026)
+
+-   **Decision:** When a model or embedding call fails, every endpoint falls
+    back to what the database already holds (stored concerns, keyword search
+    over stored evidence, recorded facts), or says nothing is on record.
+-   **Rationale:** A canned paragraph is indistinguishable from a real
+    finding to the CEO.
+-   **Trade-off:** Answers can be thinner when models are down.
+
+## D-022 --- Rank by severity × confidence; evidence caps severity (18 Nov 2026)
+
+-   **Decision:** Concerns with one record or low confidence cannot rank
+    above medium; no valid evidence means no concern. Ordering uses
+    severity × confidence, then likelihood, then recency.
+-   **Rationale:** The CEO asked that weakly evidenced points never look
+    important.
+
+## D-023 --- Each finding carries observed / inference / next step / why (18 Nov 2026)
+
+-   **Decision:** Separate columns for observed facts, interpretation and
+    the recommended action, plus a per-evidence rationale, area and owner.
+    Migrations `20261118000000` and `20261118010000`.
+-   **Rationale:** One blended paragraph made concerns read as copies of
+    each other and hid why each record was cited.
+
+## D-024 --- Model chains per task, structured output, validation (18 Nov 2026)
+
+-   **Decision:** Analysis and chat each have an ordered model list with
+    automatic failover (`GEMINI_ANALYSIS_MODELS`, `GEMINI_CHAT_MODELS`).
+    Responses use Gemini response schemas and are validated with Zod; a
+    malformed answer moves to the next model.
+-   **Rationale:** Verified on the project key: the stronger models hit the
+    free-tier daily limit or return 503 often; `gemini-3.1-flash-lite` is
+    reliably available.
+-   **Revisit if:** The key moves to a paid tier.
+
+## D-025 --- Analyse by folder, then consolidate (18 Nov 2026)
+
+-   **Decision:** Each data-room folder is analysed separately (call
+    transcripts added to every batch as secondary context), then one
+    consolidation pass writes the final list and cites which batch findings
+    each item is built from; evidence is carried over, never rewritten.
+-   **Rationale:** In one prompt the lite model merged distinct issues
+    (payroll vanished into "financial reporting").
+-   **Trade-off:** About seven model calls per run; merged findings pool
+    their evidence, so some rationale links are loose.
+
+## D-026 --- 14 chat personas chosen from the data (18 Nov 2026)
+
+-   **Decision:** Excluding the CEO and anyone who has left, the 14 people
+    with the most presence in released documents become personas, with
+    seniority as the tie-break. Count via `VELOXA_PERSONA_COUNT`.
+-   **Result today:** Divya Reddy, Aisha Khan and Kavya Narayan excluded.
+-   **Supersedes:** A-001's department-based roster.
+
+## D-027 --- Dated reporting-line changes (18 Nov 2026)
+
+-   **Decision:** Reorganisations are rows in `org_changes` (tentative,
+    confirmed, cancelled; effective date). The directory applies a change
+    only when confirmed, effective, the new manager exists, and no loop
+    results. Migration `20261118020000`.
+-   **Rationale:** T6b: "make sure the thing doesn't break when we move
+    people around", with the CRO not yet appointed and the date not final.
+
+## D-028 --- Health check by business area, saved (18 Nov 2026)
+
+-   **Decision:** An on-demand check picks 5–8 business areas from the
+    evidence (clients and revenue, cash and spending, delivery…), not only
+    departments; a CEO-only "department" is never treated as a team. The
+    last result is saved in `health_checks` (migration `20261118030000`).
+
+## D-029 --- Ingest Day 1–3; calls secondary; voice notes never (18 Nov 2026)
+
+-   **Decision:** `VELOXA_RELEASE_DAYS` defaults to Day1–Day3. Data-room
+    files are primary evidence, call transcripts secondary; `T6*` CEO voice
+    notes are never ingested. Large tables get a generated profile chunk.
+
+## D-030 --- Local checks on next dev only (18 Nov 2026)
+
+-   **Decision:** Day-to-day checks use the dev server; production builds
+    run before deploying. Docker images are rebuilt to update the Docker
+    stack.
+-   **Rationale:** A stale `next start` served HTML pointing at deleted CSS
+    chunks.

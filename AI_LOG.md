@@ -2,7 +2,7 @@
 
 **Project:** Veloxa CXO Cockpit  
 **Hackathon:** Hiyaku Systems Individual Hackathon  
-**Log period:** Day 1 — 16 November 2026  
+**Log period:** Day 1 to Day 3 — 16 to 18 November 2026  
 **Purpose:** Record where AI assistance was used during analysis and development, what was retained or changed, and how the final decisions were reviewed. This is a working project log, not a transcript of every prompt.
 
 ---
@@ -113,6 +113,181 @@ the shared schema for the Supabase project.
   test confirmed the app responded on port 3000, the PostgreSQL service
   became healthy and the migration created the expected tables.
 - **Outcome:** Accepted with the local and hosted setup paths documented.
+
+## AI-010 — Concern quality: specific, evidenced, owned
+
+**Work item (17–18 Nov):** The attention map showed three near-identical,
+generic concerns ("Delivery commitments have unresolved execution signals").
+
+- **AI assistance:** Traced the generic text to a keyword fallback with
+  canned descriptions and a single hard-coded "suggested action"; drafted a
+  replacement analysis that returns separate observed facts, inference and
+  next step, plus a per-record "why this counts" rationale.
+- **Candidate review:** Ran the analysis end to end against the local
+  database and read every finding. Rejected outputs that were still vague,
+  invented deadlines ("by 25 November") or anonymised people ("one
+  individual" for Sneha Kulkarni).
+- **Changes made:** Short evidence labels (E1, E2…) instead of UUIDs after
+  the model cited a non-existent UUID and crashed the save on a foreign key;
+  no evidence means no finding; severity is capped by confidence and record
+  count; ranking is severity × confidence; prompts forbid invented dates,
+  buzzwords and label-style titles, and require names and "so what".
+- **Verification:** Unit tests (`risk-ranking`, `reorg`), repeated live runs
+  on Docker and hosted Supabase; findings read manually each time.
+- **Outcome:** Accepted. Quality still varies run to run on the free-tier
+  lite model (see AI-015).
+
+## AI-011 — No hard-coded data anywhere
+
+**Work item (17–18 Nov):** The CEO required that nothing shown is
+hand-written.
+
+- **AI assistance:** Audited the codebase and found `scripts/seed-data.ts`
+  (~770 lines: invented people details, scripted interview answers, 20
+  citations, six pre-written concerns) feeding the whole hosted database,
+  plus person-specific rewrite rules in the chat sanitiser (e.g. turning a
+  phrase into "Meera said that about me…").
+- **Candidate review:** Confirmed which rows in each database came from the
+  seed before deleting anything; ran the purge with `--dry-run` first.
+- **Changes made:** Deleted the seed and its script; added
+  `scripts/purge-seeded.ts`; people now come from the released
+  `Employee_Master.xlsx` (`src/lib/ingestion/people.ts`); every fallback
+  returns stored database data rather than template text; the sanitiser and
+  text humaniser keep only generic rules.
+- **Verification:** Purge counts matched expectations on Docker and hosted
+  (7 answers, 6 concerns, 16 assumptions, 14 scripted personas, 3
+  conflicts); tests updated to generic cases.
+- **Outcome:** Accepted.
+
+## AI-012 — Reporting line from Manager ID
+
+**Work item (18 Nov):** Everyone showed as "Top of company".
+
+- **AI assistance:** Found that the mapping code existed but the hosted
+  database still held the seeded profiles with no manager; added a
+  people-only sync (`pnpm sync:employees`).
+- **Candidate review:** Compared the printed tree row by row with the
+  spreadsheet's `Manager ID` column.
+- **Verification:** Both databases print the same tree as the sheet;
+  `employee-master` unit tests parse the real file (19 rows, banner row
+  skipped, every manager resolves).
+- **Outcome:** Accepted.
+
+## AI-013 — Overview, people and chat UI
+
+**Work item (17–18 Nov):** Make the site a personal morning brief rather
+than a generic dashboard.
+
+- **AI assistance:** Rebuilt the overview (greeting by the CEO's name,
+  stat cards, top three concerns, Ask, health check), the people table
+  (indented reporting line, details row, persona-only chat), the concern
+  detail page and the chat drawer.
+- **Candidate review:** Checked each change in a headless Chrome (own
+  throwaway profile, DevTools protocol) at 1440×900: the three concern cards
+  must end above the fold, no console errors, no failed requests.
+- **Changes made after review:** Custom CSS moved into Tailwind layers
+  (unlayered rules were silently overriding spacing utilities); the CEO's
+  message now appears before the reply; Ask moved below the concerns;
+  "going well" hidden when empty; citation numbers renumbered 1..n; jargon
+  ("released material", "pack", "executive intelligence") removed;
+  per-page tab titles.
+- **Verification:** Screenshots and DOM checks on every page; the three
+  cards end at 846 px on a 900 px viewport.
+- **Outcome:** Accepted.
+
+## AI-014 — Employee chat as people, not an assistant
+
+**Work item (18 Nov):** Replies must sound like the employee, address the
+CEO by name and never invent reassurance.
+
+- **AI assistance:** Persona voices generated once from each person's own
+  records and cached; full text of records naming the person passed as
+  first-hand knowledge; conversation history kept.
+- **Candidate review:** Read replies from Meera, Fatima, Karthik, Rahul and
+  Vikram. Fatima first claimed February payroll was "finalised on schedule"
+  (contradicted by the email showing Karthik ran it in her absence); Meera
+  claimed she personally paused hiring.
+- **Changes made:** Rules against claiming things are fine or taking credit
+  without a record; a name-correction safety net; chat limited to the 14
+  personas; the CEO cannot chat with themself.
+- **Verification:** `address-ceo` unit tests; live replies re-read.
+- **Outcome:** Accepted; replies on the lite model can still drift.
+
+## AI-015 — Model availability and failover
+
+**Work item (17–18 Nov):** The analysis returned nothing because the
+configured model was unavailable.
+
+- **AI assistance:** Listed models for the key and made real calls to each.
+  Found `gemini-3.8-flash` and `gemini-3-flash` limited to 20 requests a
+  day on the free tier and often overloaded, pro/`gemini-4` not in quota,
+  2.5 retired, `gemini-3.1-flash-lite` reliably available.
+- **Changes made:** Per-task model chains with automatic failover
+  (`src/lib/ai/gemini.ts`); Gemini structured output (response schemas)
+  after the lite model produced malformed JSON; retries on 503;
+  folder-by-folder analysis plus a consolidation pass so the lite model
+  keeps distinct issues apart.
+- **Verification:** Live runs logging which model answered; debug logging
+  of pre-merge findings to tune the merge (over-merging was traced to call
+  transcripts being shared context in every batch).
+- **Outcome:** Accepted. Free-tier quota remains a real limit.
+
+## AI-016 — Day 3 data and table profiles
+
+**Work item (18 Nov):** Add the Day 3 data room and the T4/T5 calls.
+
+- **AI assistance:** Added a generic profile for large tables (rows per
+  month and per grouping column) so the 1,453-row git log becomes readable
+  facts; capped long documents to their first chunks in analysis.
+- **Candidate review:** Checked the profile against the raw CSV. It surfaced
+  Priya Nair under two identities and Sneha Kulkarni's August commit drop.
+- **Verification:** 13 Day 3 documents present in both databases; T6 voice
+  notes absent.
+- **Outcome:** Accepted.
+
+## AI-017 — Reorganisations that cannot break the directory
+
+**Work item (18 Nov, T6b):** "Make sure the thing doesn't break when we move
+people around."
+
+- **AI assistance:** Dated reporting-line changes (`org_changes`), a pure
+  directory builder, and tests for tentative, future-dated,
+  missing-manager and loop cases.
+- **Candidate review:** Found an existing bug while doing this: a reporting
+  loop would have made people disappear from the directory.
+- **Verification:** `reorg` unit tests (department move, loops, nobody
+  lost, CEO stays the single top).
+- **Outcome:** Accepted. The CRO move is recorded as tentative because no
+  CRO exists in any record.
+
+## AI-018 — Health check and Ask
+
+**Work item (18 Nov):** On-demand company status by business area, and a
+search box that answers questions.
+
+- **AI assistance:** Health check that picks 5–8 business areas from the
+  evidence and saves the result; Ask that reads the whole (small) corpus and
+  cites sources.
+- **Candidate review:** The first health check said "Clients and revenue:
+  no data" although board updates report ARR; traced to one-line summaries
+  dropping figures and fixed by passing full records. Ask first quoted the
+  call's burn figure; fixed by marking calls as secondary and leading with
+  company records.
+- **Verification:** Live runs; Ask answer for burn and runway checked
+  against the board update (₹44 L/month, 13 months).
+- **Outcome:** Accepted.
+
+## AI-019 — Production-only errors and local servers
+
+**Work item (18 Nov):** Docker build failures and a broken local page.
+
+- **Findings:** `next build` with Cache Components rejected reading the
+  clock and the query string during prerender (fixed with a client clock
+  hook and `useSearchParams` inside `<Suspense>`). A stale `next start` on
+  port 3000 served HTML that pointed at deleted CSS chunks, so the page had
+  no styles.
+- **Outcome:** Fixed. Local checks now use `next dev` only; production
+  builds are run before deploying, on request.
 
 ---
 

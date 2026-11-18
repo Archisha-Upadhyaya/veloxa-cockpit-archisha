@@ -1,7 +1,7 @@
-# Transcript Notes --- Day 1
+# Transcript Notes --- Day 1 to Day 3
 
-**Sources:** `T1_CEO_Kickoff_Call.docx`, `T2_CFO_Call.docx`\
-**Date reviewed:** 16 November 2026
+**Sources:** `T1_CEO_Kickoff_Call.docx`, `T2_CFO_Call.docx` (Day 1); `T3_Head_of_People_Call.docx`, `T6a_CEO_Voice_Note.docx` (Day 2); `T4_Head_of_Marketing_Call.docx`, `T5_VP_Engineering_Call.docx`, `T6b_CEO_Voice_Note.docx` (Day 3)\
+**Date reviewed:** 16 November 2026, updated 18 November 2026
 
 Both files are explicitly auto-generated MeetNotes summaries. T1 has
 fair audio quality; T2 has poor speakerphone audio. Speakers are Ananya
@@ -320,3 +320,83 @@ The source files do not provide recording dates. Do not invent them.
     first.
 -   **Confidence:** High on the UI requirement; medium on whether the CEO
     wants severity-ranked or newest-first ordering.
+
+-   **Update 18 Nov 2026:** Still three on the overview. Ranking is now
+    severity × confidence, so a weakly evidenced item cannot push out a
+    well-evidenced one (D-022). The cards lead with the observed facts and
+    end above the fold at 1440×900. Positives were moved out of the
+    attention map.
+
+## T3 --- Head of People call (Day 2)
+
+Auto-generated summary, good audio. Speakers: Deepa J., Ananya R., Rohan
+(joined late). Used as secondary evidence.
+
+-   **T3-N01 --- Attrition "about twelve":** unclear whether a percentage,
+    headcount or target. Not normalised.
+-   **T3-N02 --- Hiring:** "twenty-two open roles in April", "lost six of
+    them in August", offer acceptance "down to fifty-something". Hiring
+    Tracker is the primary source for counts.
+-   **T3-N03 --- Exit interviews cite workload;** "one engineer I'm worried
+    about", unnamed. Not attributed to anyone.
+-   **T3-N04 --- Tool names are misheard:** "Cult Amp" (Culture Amp),
+    "Liver" (Lever), "Kekka" (Keka). Kept as aliases.
+-   **T3-N05 --- Lakshmi "as HRBP"** vs HR master title "HR & Office
+    Executive". The HR master title is used.
+
+## T4 --- Head of Marketing call (Day 3)
+
+Auto-generated summary, fair audio. Speakers: Nikhil B., Speaker 2.
+Secondary evidence.
+
+-   **T4-N01 --- Spend "one point eight" for the half,** with no unit; Nikhil
+    says finance "counts things differently". Conflicts with finance
+    records (T2-N09). Left unresolved, unit not assumed.
+-   **T4-N02 --- "Best quarter ever for pipeline"** vs "Manoj from sales says
+    the summit leads are cold". Both kept; neither has lead data behind it.
+-   **T4-N03 --- "Ayesha" is Aisha Khan** (Performance Marketing Manager).
+    The presence count behind persona selection matches exact names only,
+    so this mention was not counted (see A-027).
+-   **T4-N04 --- "Sid's v3 launch kit has been ready since July",** waiting
+    on engineering; corroborated by email and the launch kit PDF.
+-   **T4-N05 --- Marketing will "report into the new CRO, I hear",** no
+    date. Independently supports T6b; no CRO is in the records.
+
+## T5 --- VP Engineering call (Day 3)
+
+Auto-generated summary, fair audio, ~4 minutes missing (11:20--15:30).
+Speakers: Vikram M., Ananya R. Secondary evidence.
+
+-   **T5-N01 --- "On track, maybe a couple of weeks of buffer";** board date
+    "still September-ish". **Conflicts** with the Jira export: version
+    "Atlas GA" release date 2026-12-15, original 2026-09-15, last changed
+    2026-09-02 by "vikram". Jira (a company record) is preferred; the
+    conflict is kept visible.
+-   **T5-N02 --- "Snehal on SRE and on-call",** later "Sneha". Treated as
+    Sneha Kulkarni, the only SRE (A-021). Incident export: she responded to
+    10 of 11 incidents Aug--Oct and was on-call primary every week Jul--Oct.
+-   **T5-N03 --- "Pria (routing lead)",** "Pria has been doing late nights
+    but she likes it". Treated as Priya Nair (A-022).
+-   **T5-N04 --- "We asked for two backend people and finance froze it".**
+    Matches the "Pausing two reqs" email.
+-   **T5-N05 --- "Everyone's busy, that's startups":** disputes overload;
+    kept alongside the pulse-survey drop (3.9 to 3.1) and exit-interview
+    workload comments rather than resolved.
+
+## Day 3 voice note
+
+### T6b --- CEO voice note (18 Nov 2026)
+
+-   **Source:** `Day3_Wed_18Nov/transcripts/T6b_CEO_Voice_Note.docx`. Like
+    all T6 notes, an instruction, never evidence; not ingested.
+-   **Wording:** "Marketing will report to the new CRO from next month. Or
+    the month after, still finalising. Make sure the thing doesn't break
+    when we move people around."
+-   **Change made:** Dated reporting-line changes (D-027). The move is
+    recorded as tentative, source "CEO voice note", and is not applied.
+    Directory, chat, concern owners, health-check contacts and personas
+    follow the reporting line when it changes; reorg and loop cases are
+    unit-tested.
+-   **Written pushback:** It cannot be applied yet. No CRO exists in any
+    record and the date is not final. Once a CRO is in the HR master, the
+    CEO picks them and a date on the People page.

@@ -1,7 +1,7 @@
 # Assumptions Register --- Veloxa CXO Cockpit
 
-**Status:** Initial Day 1 register\
-**Date opened:** 16 November 2026
+**Status:** Updated through Day 3\
+**Date opened:** 16 November 2026, last updated 18 November 2026
 
 This is a living register. Never delete an assumption that turns out to
 be wrong. Change its status to `revised`, `confirmed` or `rejected`,
@@ -14,7 +14,7 @@ source itself is correct.
   ID         Date       Assumption / provisional  Source basis                          Confidence             What would change my     Status
                         interpretation                                                                         mind                     
   ---------- ---------- ------------------------- ------------------------------------- ---------------------- ------------------------ ----------
-  A-001      16 Nov     The 14 agents are the     Candidate Brief: "14 people across    High                   A later instruction or   Active
+  A-001      16 Nov     The 14 agents are the     Candidate Brief: "14 people across    High                   A later instruction or   Revised
              2026       employees in Engineering, engineering, finance, HR and                                 release explicitly       
                         Finance, People & Ops and marketing"; Employee_Master.xlsx                             identifies a different   
                         Marketing: 5 + 3 + 3 + 3. department/title rows.                                       14-person roster.        
@@ -199,6 +199,48 @@ source itself is correct.
                         does not establish that                                                                                         
                         identity.                                                                                                       
   ------------------------------------------------------------------------------------------------------------------------------------------------
+
+## Revisions and additions --- 18 November 2026
+
+Entries below follow the same rules as the table: nothing is deleted;
+revised rows keep their original text above.
+
+-   **A-001 --- Revised (18 Nov 2026).** The 14 personas are no longer the
+    Engineering + Finance + People & Ops + Marketing employees. On the
+    CEO's instruction, they are the 14 people (excluding the CEO and anyone
+    who has left) with the most presence across released documents, with
+    seniority as the tie-break (D-026). Result: Manoj Kumar and Imran
+    Siddiqui are personas; Divya Reddy, Aisha Khan and Kavya Narayan are not.
+-   **A-021 --- "Snehal" is Sneha Kulkarni.** *Basis:* T5 lists "Snehal on
+    SRE and on-call"; the incident export and on-call rota use both "Sneha"
+    and "Snehal"; the employee master has one SRE, Sneha Kulkarni. *Confidence:*
+    High. *Would change my mind:* An HR or contractor record for a person
+    called Snehal. *Status:* Active.
+-   **A-022 --- "Pria" in T5 and `pnair@users.noreply.github.com` are Priya
+    Nair.** *Basis:* T5 names "Pria (routing lead)"; Priya Nair is the Staff
+    Engineer; the git log has `priya.n@veloxa.in` and `pnair@…` in the same
+    repositories. *Confidence:* Medium-High. *Status:* Active.
+-   **A-023 --- No CRO exists yet.** *Basis:* T6b says Marketing will report
+    to "the new CRO"; no CRO appears in the employee master or any document.
+    The change is recorded as tentative and not applied. *Would change my
+    mind:* A CRO row in a newer HR export. *Status:* Active.
+-   **A-024 --- Siddharth Mehta has left.** *Basis:* Employee master status
+    "Notice period" with exit date 31 Oct 2026; today is 18 Nov 2026. He is
+    shown as Exited and is not a chat persona. *Confidence:* High.
+    *Status:* Active.
+-   **A-025 --- Atlas GA is now 15 Dec 2026.** *Basis:* Jira export, version
+    "Atlas GA": release date 2026-12-15, original 2026-09-15, changed
+    2026-09-02 by "vikram". *Confidence:* Medium (a planning field, not a
+    commitment). *Status:* Active.
+-   **A-027 --- Persona presence misses name variants.** *Basis:* T4 refers
+    to Aisha Khan as "Ayesha"; the presence count matches full name, first
+    name and work email only, so she counted as 0 documents and was not
+    selected. Persona selection is therefore provisional. *Would change my
+    mind / fix:* Matching known aliases (A-021, A-022) when counting.
+    *Status:* Active (known limitation).
+-   **A-026 --- Leadership is not a team.** *Basis:* The only Leadership row
+    is the CEO. Team counts, filters and the health check leave out any
+    department made up only of the CEO. *Status:* Active.
 
 ## Revision protocol
 
