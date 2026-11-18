@@ -22,6 +22,8 @@ export type ParsedFile = {
   availableAt: string;
   releaseDay: string;
   sensitive: boolean;
+  /** Data-room records are primary evidence; call transcripts are secondary. */
+  tier: "primary" | "secondary";
 };
 
 function sourceType(filePath: string): ParsedFile["sourceType"] {
@@ -35,10 +37,13 @@ function sourceType(filePath: string): ParsedFile["sourceType"] {
 
 function releaseDay(relativePath: string) {
   const folder = relativePath.split("/")[0];
-  const match = folder.match(/^Day[12]_[A-Za-z]+_(\d{2})([A-Za-z]{3})$/);
+  const match = folder.match(/^Day\d+_[A-Za-z]+_(\d{2})([A-Za-z]{3})$/);
   if (!match) return null;
-  const month = { nov: "11" }[match[2].toLowerCase()];
-  return month ? `${new Date().getUTCFullYear()}-${month}-${match[1]}` : null;
+  const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const month = months.indexOf(match[2].toLowerCase());
+  return month >= 0
+    ? `${new Date().getUTCFullYear()}-${String(month + 1).padStart(2, "0")}-${match[1]}`
+    : null;
 }
 
 /**
@@ -109,6 +114,8 @@ async function listFiles(directory: string): Promise<string[]> {
     }
     else if (
       entry.name !== "README.txt" &&
+      // CEO voice notes are the CEO's own thinking, not company evidence.
+      !/^T6[a-z]?_/i.test(entry.name) &&
       supportedExtensions.has(path.extname(entry.name).toLowerCase())
     ) {
       files.push(fullPath);
@@ -129,7 +136,20 @@ function chunks(text: string, size = 1800, overlap = 220) {
 
 export async function readDataRoom(): Promise<ParsedFile[]> {
   const root = dataRoomRoot();
-  const allowedDays = ["Day1_Mon_16Nov", "Day2_Tue_17Nov"];
+  // Scope is configurable; by default only the Day 1 and Day 2 packs are
+  // ingested. availableAt still gates visibility inside that scope.
+  const releaseDays = (process.env.VELOXA_RELEASE_DAYS ?? "Day1,Day2")
+    .split(",")
+    .map((day) => day.trim())
+    .filter(Boolean);
+  const allowedDays = (await fs.readdir(root, { withFileTypes: true }))
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        releaseDays.some((day) => entry.name.startsWith(`${day}_`)),
+    )
+    .map((entry) => entry.name)
+    .sort();
   const files: string[] = [];
   for (const day of allowedDays) {
     for (const folder of ["data_room", "transcripts"]) {
@@ -157,6 +177,7 @@ export async function readDataRoom(): Promise<ParsedFile[]> {
       relativePath,
       contentHash: createHash("sha256").update(buffer).digest("hex"),
       title: path.basename(absolutePath),
+      tier: relativePath.includes("/transcripts/") ? "secondary" : "primary",
       sourceType: sourceType(absolutePath),
       text,
       availableAt: availableAt(relativePath, stat.mtime),

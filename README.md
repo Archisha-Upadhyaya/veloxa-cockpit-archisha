@@ -45,8 +45,8 @@ docker compose up --build
 
 Open **http://localhost:3000**.
 
-The stack starts PostgreSQL with pgvector, applies every migration, seeds the
-reviewed baseline, starts the Next.js app, then runs the bootstrap job:
+The stack starts PostgreSQL with pgvector, applies every migration, removes any
+legacy hand-written seed rows, starts the Next.js app, then runs the bootstrap job:
 `sync → embed → analyze`. Bootstrap is safe to repeat: ingestion skips unchanged
 files, embeddings only fill gaps, and analysis updates concerns by fingerprint.
 
@@ -114,11 +114,21 @@ NEXT_PUBLIC_APP_URL=https://your-app.example.com
 fallback for existing deployments, but new deployments should use
 `SUPABASE_URL`. The app does not need a browser-side Supabase client.
 
-Seed and index a hosted database:
+What gets ingested: the Day 1 and Day 2 release packs (`VELOXA_RELEASE_DAYS`,
+default `Day1,Day2`). Data-room files are primary evidence; call transcripts are
+secondary. CEO voice notes (`T6*`) are never ingested.
+
+Models: each task has its own failover chain (`GEMINI_ANALYSIS_MODELS`,
+`GEMINI_CHAT_MODELS`); see `src/lib/ai/gemini.ts` for the verified defaults.
+
+There is no hand-written seed data. Everything comes from the release packs:
+documents and evidence from `/api/sync`, the people directory (including the
+reporting line) from the latest released `Employee_Master.xlsx`, and concerns
+from `/api/analyze`. To clear rows left by the old static seed:
 
 ```bash
-pnpm seed:supabase
-pnpm embed:supabase
+pnpm purge:seeded --dry-run   # count what would be removed
+pnpm purge:seeded
 ```
 
 Then call the trusted server operations, or run them from a scheduler/worker:

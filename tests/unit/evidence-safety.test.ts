@@ -129,11 +129,11 @@ Siddharth Mehta`;
     expect(friendlySourceTitle("T2_CFO_Call.docx")).toBe("CFO call");
   });
 
-  it("removes source codes and internal shorthand from concern text", () => {
+  it("removes employee codes, locators and internal shorthand from concern text", () => {
     const text = humanizeConcernText(
-      "ARR and burn figures in T1/T2 cannot be reconciled with the ledger. Inference: The cockpit prefers the structured record. VX013 (Siddharth Mehta, PMM) is named in the corpus.",
+      "Figures in chunk-3 cannot be reconciled. Inference: Siddharth Mehta (VX013) is named in the corpus.",
     );
-    expect(text).not.toMatch(/T1|T2|VX\d{3}|corpus|cockpit|ledger/i);
+    expect(text).not.toMatch(/VX\d{3}|corpus|chunk|Inference:/i);
     expect(text).toContain("Siddharth Mehta");
   });
 

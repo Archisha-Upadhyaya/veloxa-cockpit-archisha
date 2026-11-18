@@ -2,6 +2,10 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateGroundedAnswer } from "@/lib/ai/gemini";
 import { EMPLOYEE_CHAT_SYSTEM } from "@/lib/ai/prompts";
 import { defaultMatchThreshold, embedTexts } from "@/lib/rag/embeddings";
+import { keywordEvidenceSearch, keywordTerms } from "@/lib/data/fallback";
+import { loadDirectory, personFacts } from "@/lib/people/directory";
+import { getPersona } from "@/lib/people/persona";
+import { addressCeoCorrectly } from "@/lib/people/address";
 import {
   dedupeEvidenceSummaries,
   extractEvidenceSnippet,
@@ -12,10 +16,14 @@ import {
   isGreeting,
   isSensitiveEvidence,
   safeFacts,
+  redactSensitiveLines,
   sanitizeEmployeeAnswer,
 } from "@/lib/evidence/snippet";
 
-type ChatRequest = { question?: string };
+type ChatRequest = {
+  question?: string;
+  history?: Array<{ question: string; answer: string }>;
+};
 type EvidenceRow = {
   id: string;
   evidence_text: string;
@@ -68,23 +76,25 @@ function toSafeEvidence(evidence: EvidenceRow[], question: string) {
   return dedupeEvidenceSummaries(safe).slice(0, 5);
 }
 
+/**
+ * Answer without the model, using only what the database holds for this
+ * person: recorded interview answers, profile facts, matching evidence, and
+ * the persona's stated unknowns. Nothing here is scripted content about the
+ * person; when the database holds nothing relevant, the answer is null and
+ * the client says so.
+ */
 function inferWithoutModel(
   question: string,
   name: string,
   safeEvidence: SafeEvidence[],
-  recordedAnswer?: string,
-  groundedFacts: string[] = [],
-) {
+  recordedAnswer: string | undefined,
+  groundedFacts: string[],
+  knownUnknowns: string[],
+): { answer: string | null; provenance: string } {
   const normalized = question.toLowerCase();
-  const firstName = name.split(/\s+/)[0];
+  const firstName = name.split(/\s+/)[0].toLowerCase();
 
-  if (isGreeting(normalized)) {
-    return {
-      answer: `Hi — good to see you. What's on your mind?`,
-      provenance: "conversation",
-    };
-  }
-
+  // Policy, not data: pay is never discussed regardless of what is stored.
   if (isCompensationQuestion(normalized)) {
     return {
       answer:
@@ -92,113 +102,41 @@ function inferWithoutModel(
       provenance: "policy_refusal",
     };
   }
-
-  if (/(quit|resign|leave|stay|departure|notice|last working day)/.test(normalized)) {
-    const personSignals = safeEvidence.filter((item) => {
-      const summary = item.summary.toLowerCase();
-      return (
-        summary.includes(firstName.toLowerCase()) ||
-        summary.includes(name.toLowerCase()) ||
-        /resign|notice|last working day|departure|exit/i.test(summary)
-      );
-    });
-    const resignation = personSignals.find((item) =>
-      /resign|notice|last working day|departure|exit|notice period/i.test(
-        item.summary,
-      ),
-    );
-    if (resignation) {
-      const date =
-        resignation.summary.match(
-          /(?:last working day|exit date)(?: is| will be| of|:)? ([^.;,]+)/i,
-        )?.[1] ??
-        resignation.summary.match(
-          /(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4})/i,
-        )?.[1];
-      if (date) {
-        return {
-          answer: `Yes — I handed in my notice. My last working day is ${date.trim()}, and I'm finishing my handover before I go.`,
-          provenance: "grounded",
-        };
-      }
-      return {
-        answer:
-          "Yes — I've handed in my notice. I'm finishing my handover before I go.",
-        provenance: "grounded",
-      };
-    }
-    const recorded = recordedAnswer
-      ? sanitizeEmployeeAnswer(recordedAnswer)
-      : null;
-    if (recorded && /notice|resign|last working day|exit date/i.test(recorded)) {
-      return { answer: recorded, provenance: "recorded_context" };
-    }
-    return {
-      answer:
-        "Nothing has changed on my side. If you've heard otherwise, I'd rather we talk it through directly.",
-      provenance: "uncertain_inference",
-    };
+  if (isGreeting(normalized)) {
+    return { answer: "Hi — what's on your mind?", provenance: "conversation" };
   }
 
-  if (/(current|currently|working on|doing|task|project|busy|week)/.test(normalized)) {
-    // A recorded answer is the closest thing this employee has to a direct
-    // reply. Only fall back to profile facts when they contain real work.
-    if (recordedAnswer) {
-      const cleaned = sanitizeEmployeeAnswer(recordedAnswer);
-      if (cleaned) return { answer: cleaned, provenance: "recorded_context" };
-    }
-    const facts = safeFacts(groundedFacts, 3).filter((fact) =>
-      /\b(?:keep|handle|work|manage|own|lead|run|support|responsible|building|shipping|looking|hardening|running)\b/i.test(
-        fact,
-      ),
-    );
-    if (facts.length > 0) {
-      const first = factToSpeech(facts[0], name);
-      const second = facts[1] ? factToSpeech(facts[1], name) : "";
-      return {
-        answer: [first, second].filter(Boolean).join(" "),
-        provenance: "profile_inference",
-      };
-    }
-    return {
-      answer:
-        "I'm mostly heads-down on my team's work right now, and I don't have a clean update beyond that. Ask me again once I've checked where things stand.",
-      provenance: "uncertain_inference",
-    };
-  }
+  const recorded = recordedAnswer ? sanitizeEmployeeAnswer(recordedAnswer) : null;
+  if (recorded) return { answer: recorded, provenance: "recorded_context" };
 
-  if (recordedAnswer) {
-    const cleaned = sanitizeEmployeeAnswer(recordedAnswer);
-    if (cleaned) return { answer: cleaned, provenance: "recorded_context" };
-  }
-
-  const facts = safeFacts(groundedFacts, 2);
-  if (facts.length > 0) {
-    return {
-      answer: factToSpeech(facts[0], name),
-      provenance: "profile_inference",
-    };
-  }
-
-  const personalNote = safeEvidence.find((item) => {
+  const questionTerms = keywordTerms(question);
+  const aboutPerson = safeEvidence.filter((item) => {
     const summary = item.summary.toLowerCase();
-    return (
-      summary.includes(firstName.toLowerCase()) ||
-      summary.includes(name.toLowerCase())
-    );
+    return summary.includes(firstName) || summary.includes(name.toLowerCase());
   });
-  if (personalNote) {
-    return {
-      answer: `The main thing I'd point to is this: ${personalNote.summary}`,
-      provenance: "grounded",
-    };
+  const onTopic = (aboutPerson.length > 0 ? aboutPerson : safeEvidence).find((item) =>
+    questionTerms.some((term) => item.summary.toLowerCase().includes(term)),
+  ) ?? aboutPerson[0];
+  if (onTopic) {
+    return { answer: onTopic.summary, provenance: "grounded" };
   }
 
-  return {
-    answer:
-      "I don't have enough to go on, and I'd rather not guess. Ask me something more specific and I'll tell you what I know.",
-    provenance: "uncertain_inference",
-  };
+  const relevantFact =
+    groundedFacts.find((fact) =>
+      questionTerms.some((term) => fact.toLowerCase().includes(term)),
+    ) ?? groundedFacts[0];
+  if (relevantFact) {
+    return { answer: factToSpeech(relevantFact, name), provenance: "profile_inference" };
+  }
+
+  const unknown = knownUnknowns.find((item) =>
+    questionTerms.some((term) => item.toLowerCase().includes(term)),
+  );
+  if (unknown) {
+    return { answer: `I don't know that — ${unknown}`, provenance: "no_visibility" };
+  }
+
+  return { answer: null, provenance: "no_record" };
 }
 
 export async function POST(
@@ -217,7 +155,7 @@ export async function POST(
     const { data, error } = await supabase
       .from("employee_profiles")
       .select(
-        "employee_key, display_name, role_title, department, profile, agent_personas(known_topics, known_unknowns, perspective_rules)",
+        "id, employee_key, display_name, role_title, department, profile, agent_personas(known_topics, known_unknowns, perspective_rules)",
       )
       .eq("employee_key", employeeKey)
       .eq("is_active", true)
@@ -291,21 +229,48 @@ export async function POST(
         relatedEvidence = [...retrieved.values()];
       } catch (error) {
         console.error("Semantic employee evidence retrieval failed", error);
-        const fallback = await supabase
-          .from("evidence_items")
-          .select(
-            "id, evidence_text, source_locations(locator, source_documents(title, release_day))",
-          )
-          .eq("is_sensitive", false)
-          .ilike("evidence_text", `%${data.display_name}%`)
-          .limit(12);
-        if (fallback.error) throw new Error(fallback.error.message);
-        relatedEvidence = (fallback.data ?? []) as unknown as EvidenceRow[];
+        const stored = await keywordEvidenceSearch(
+          supabase,
+          `${data.display_name} ${question}`,
+          { limit: 12 },
+        );
+        relatedEvidence = stored.map((item) => ({
+          id: item.evidence_id,
+          evidence_text: item.evidence_text,
+          source_locations: {
+            locator: item.locator,
+            source_documents: { title: item.source_title },
+          },
+        }));
       }
     }
 
     const safeEvidence = toSafeEvidence(relatedEvidence, question);
-    const groundedFacts = safeFacts(profile.groundedFacts ?? [], 5);
+    // Full text of every released record that names this person: what they
+    // would actually know first-hand. Pay lines are removed.
+    const nameTerms = String(data.display_name).split(/\s+/).filter((part: string) => part.length > 2);
+    const named = await supabase
+      .from("evidence_items")
+      .select("evidence_text, source_locations(source_documents(title, relative_path))")
+      .eq("is_sensitive", false)
+      .lte("available_at", new Date().toISOString())
+      .or(nameTerms.map((term: string) => `evidence_text.ilike.%${term.replace(/[%,()]/g, "")}%`).join(","))
+      .limit(12);
+    const firsthand = ((named.data ?? []) as unknown as Array<{
+      evidence_text: string;
+      source_locations: { source_documents: { title: string; relative_path: string | null } | null } | null;
+    }>)
+      .filter((row) => !/\/T6[a-z]?_/i.test(row.source_locations?.source_documents?.relative_path ?? ""))
+      .filter((row) => !/employee[_\s-]*master/i.test(row.source_locations?.source_documents?.title ?? ""))
+      .map((row) => `(${friendlySourceTitle(row.source_locations?.source_documents?.title)}) ${redactSensitiveLines(row.evidence_text).slice(0, 1_500)}`)
+      .slice(0, 6);
+    // Facts come from the HR master (reporting line, tenure, status) and from
+    // released evidence that names this person; nothing is scripted.
+    const directory = await loadDirectory(supabase);
+    const person = directory.find((entry) => entry.empId === data.employee_key);
+    const groundedFacts = person
+      ? [...personFacts(person), ...person.mentions.map((mention) => mention.summary)]
+      : safeFacts(profile.groundedFacts ?? [], 5);
     const relevantExchanges = rankedExchanges
       .filter((item) => item.score > 0)
       .slice(0, 3)
@@ -315,54 +280,56 @@ export async function POST(
       })
       .filter((exchange): exchange is NonNullable<typeof exchange> => exchange !== null);
 
-    const context = JSON.stringify({
-      employee: {
-        name: data.display_name,
-        title: data.role_title,
-        department: data.department,
-        groundedFacts,
-      },
-      persona: persona
-        ? {
-            knownTopics: persona.known_topics,
-            knownUnknowns: persona.known_unknowns,
-            perspectiveRules: persona.perspective_rules,
-          }
-        : null,
-      recordedAnswers: relevantExchanges,
-      shortNotes: safeEvidence.map((item) => ({
-        note: item.summary,
-        from: item.source,
-      })),
-    });
+    const history = (body.history ?? []).slice(-6);
+    // The person chatting is always the CEO: the top of the reporting tree.
+    const ceo = directory.find((entry) => entry.tier === 0 && entry.reports.length > 0 && entry.isActive);
+    const ceoFirstName = ceo?.name.split(/\s+/)[0] ?? null;
+    if (ceo && ceo.empId === data.employee_key) {
+      return Response.json({ error: "That's your own profile." }, { status: 400 });
+    }
+    const voice = person && process.env.GEMINI_API_KEY
+      ? await getPersona(supabase, data.id, person)
+      : null;
+    const firstName = data.display_name.split(/\s+/)[0];
 
-    let answer: string | undefined;
+    let answer: string | null | undefined;
     let provenance = "grounded";
     if (process.env.GEMINI_API_KEY) {
       try {
         const generated = await generateGroundedAnswer(
-          `You are ${data.display_name}, the ${data.role_title} in ${data.department}. The CEO has just asked you:
-"${question}"
+          `You are ${data.display_name}, ${data.role_title} in ${data.department} at Veloxa.
+${ceo ? `You are talking with ${ceo.name}, the CEO of Veloxa.${person?.managerName && person.managerName !== ceo.name ? ` Your own manager is ${person.managerName}, but this conversation is with the CEO, not with ${person.managerName.split(/\s+/)[0]}.` : ""} If you address the CEO by name, call them ${ceoFirstName} — never by anyone else's name.` : "You are talking with the CEO. Do not address them by any name."}
 
-What you know (private notes — never read this out, never mention it as a source):
-${context}
+Who you are:
+${voice ? `${voice.voice}
+How you talk: ${voice.speech_habits.join("; ")}.
+What you care about: ${voice.cares_about.join("; ")}.
+You'd know first-hand: ${voice.knows_about.join("; ")}.
+You'd defer on: ${voice.would_not_know.join("; ")}.` : "A professional who is straightforward with the CEO."}
 
-Reply as ${data.display_name} would in a private conversation.
-- Answer the actual question first, in 1-3 short sentences.
-- Use contractions and ordinary spoken language.
-- If the notes do not answer it, say so plainly: "I'm not sure", "I'd have to check", "I haven't heard that".
-- Pay is confidential. Never discuss salaries, payroll rows, deductions, or anyone's pay.
-- Never quote or describe tables, spreadsheets, file names, chunk numbers, or long extracts.
-- Do not mention records, evidence, data, the corpus, the system, or being an agent.
-- Do not talk about another employee's private situation unless it is directly part of your own role and needed to answer.`,
+Facts about you:
+${groundedFacts.map((fact) => `- ${fact}`).join("\n")}
+
+Things you were part of or would have seen (never quote them or say where they came from):
+${[...firsthand, ...relevantExchanges.map((item) => item.answer), ...safeEvidence.map((item) => item.summary)].map((fact) => `- ${fact}`).join("\n") || "- nothing specific"}
+
+Be honest. If something above shows a problem, a delay or an open question in your area, own it plainly — never claim things are fine, complete or on schedule unless the above says so. If it isn't covered above, say you'd need to check.
+
+${history.length ? `The conversation so far:\n${history.map((turn) => `CEO: ${turn.question}\n${firstName}: ${turn.answer}`).join("\n")}\n` : ""}CEO: ${question}
+${firstName}:`,
           EMPLOYEE_CHAT_SYSTEM,
-          { maxOutputTokens: 300, timeoutMs: 15_000 },
+          { task: "chat", maxOutputTokens: 500, timeoutMs: 15_000 },
         );
-        const cleaned = sanitizeEmployeeAnswer(generated);
+        const cleaned = sanitizeEmployeeAnswer(
+          addressCeoCorrectly(
+            generated.replace(new RegExp(`^${firstName}:\\s*`), ""),
+            ceoFirstName,
+            directory.map((entry) => entry.name.split(/\s+/)[0]),
+          ),
+        );
         if (cleaned) {
           answer = cleaned;
-          provenance =
-            safeEvidence.length > 0 ? "grounded_inference" : "profile_inference";
+          provenance = safeEvidence.length > 0 ? "grounded_inference" : "profile_inference";
         }
       } catch (error) {
         console.error("Gemini employee answer failed; using evidence inference", error);
@@ -375,6 +342,7 @@ Reply as ${data.display_name} would in a private conversation.
         safeEvidence,
         match?.answer,
         groundedFacts,
+        (persona?.known_unknowns as string[] | null | undefined) ?? [],
       );
       answer = fallback.answer;
       provenance = fallback.provenance;

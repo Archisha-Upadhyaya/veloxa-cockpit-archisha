@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { AreaPill, ConfidencePill, SeverityPill } from "@/components/pills";
 
 type Risk = {
   title: string;
@@ -8,131 +10,128 @@ type Risk = {
   severity: string;
   likelihood: string;
   status: string;
-  confidence?: string;
+  confidence?: string | null;
+  observed?: string | null;
+  inference?: string | null;
+  recommended_action?: string | null;
+  polarity?: string | null;
+  area?: string | null;
+  last_reviewed_at?: string | null;
 };
 type Evidence = {
   id: string;
   summary: string;
+  why?: string | null;
+  tier?: string;
   source: string;
   locator: string;
-  kind?: string;
   dateLabel?: string;
 };
-type DetailTab = "assessment" | "evidence" | "action";
+type Owner = { empId: string; name: string; title: string; department: string } | null;
 
-export default function RiskDetailView({
-  riskKey,
-}: {
-  riskKey: string;
-}) {
+export default function RiskDetailView({ riskKey }: { riskKey: string }) {
   const [risk, setRisk] = useState<Risk | null>(null);
+  const [owner, setOwner] = useState<Owner>(null);
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<DetailTab>("assessment");
 
   useEffect(() => {
     fetch(`/api/risks/${encodeURIComponent(riskKey)}`)
       .then(async (response) => {
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error ?? "Unable to load concern details.");
+        if (!response.ok) throw new Error(result.error ?? "Unable to load this item.");
         setRisk(result.risk);
+        setOwner(result.owner ?? null);
         setEvidence(result.evidence ?? []);
         setNotice(result.notice ?? null);
       })
       .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : "Unable to load concern details."),
+        setError(reason instanceof Error ? reason.message : "Unable to load this item."),
       );
   }, [riskKey]);
 
-  if (error) {
-    return <main className="mx-auto max-w-3xl px-5 py-12 text-sm text-[var(--muted)]">{error}</main>;
-  }
-  if (!risk) {
-    return <main className="mx-auto max-w-3xl px-5 py-12 text-sm text-[var(--muted)]">Loading concern…</main>;
-  }
+  if (error) return <main className="mx-auto max-w-3xl px-5 py-12 text-sm text-[var(--muted)]">{error}</main>;
+  if (!risk) return <main className="mx-auto max-w-3xl px-5 py-12 text-sm text-[var(--muted)]">Loading…</main>;
+
+  const positive = risk.polarity === "positive";
+  const chatHref = owner
+    ? `/people?${new URLSearchParams({ chat: owner.empId, about: risk.title }).toString()}`
+    : null;
 
   return (
-    <main className="mx-auto w-full max-w-[1100px] px-5 py-8 lg:px-10 lg:py-12">
-      <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[var(--accent)]">Concern detail</p>
-      <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="font-serif text-5xl tracking-[-.05em]">{risk.title}</h1>
-          <p className="mt-3 text-sm text-[var(--muted)]">
-            {risk.severity} severity · {risk.likelihood} likelihood · {risk.status}
-          </p>
+    <main className="mx-auto w-full max-w-[920px] px-5 py-8 lg:py-10">
+      <Link href="/risks" className="text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]">← All items</Link>
+
+      <header className={`mt-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 sm:p-8 ${positive ? "border-l-4 border-l-[var(--good)]" : `detail-header sev-${risk.severity}`}`}>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {positive ? <span className="pill-good">✓ going well</span> : <SeverityPill severity={risk.severity} />}
+          {risk.area && <AreaPill area={risk.area} all={[]} />}
+          <ConfidencePill confidence={risk.confidence} />
+          <span className="text-[11px] text-[var(--muted)]">
+            · {evidence.length} supporting {evidence.length === 1 ? "record" : "records"}
+            {risk.last_reviewed_at ? ` · reviewed ${new Date(risk.last_reviewed_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}
+          </span>
         </div>
-        <span className="pill rounded-full px-3 py-1 text-xs">{risk.confidence ?? "unknown"} confidence</span>
-      </div>
+        <h1 className="mt-3 font-serif text-3xl leading-tight tracking-[-.03em] sm:text-4xl">{risk.title}</h1>
 
-      <div className="mt-10 flex gap-2 border-b border-[var(--line)]">
-        {([
-          ["assessment", "Assessment"],
-          ["evidence", "Evidence"],
-          ["action", "Suggested action"],
-        ] as const).map(([tab, label]) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`border-b-2 px-3 py-3 text-xs font-semibold transition ${
-              activeTab === tab
-                ? "border-[var(--accent)] text-[var(--accent)]"
-                : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+        {owner && chatHref && (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[var(--surface)] p-3">
+            <p className="text-sm">
+              <span className="text-[var(--muted)]">Best person to talk to: </span>
+              <strong>{owner.name}</strong>
+              <span className="text-[var(--muted)]"> · {owner.title}</span>
+            </p>
+            <Link href={chatHref} className="talk-button">Talk to {owner.name.split(" ")[0]} →</Link>
+          </div>
+        )}
+      </header>
 
-      {activeTab === "assessment" && (
-        <section className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
-          <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">What we think is happening</p>
-          <p className="mt-4 text-base leading-8 text-[var(--ink)]">{risk.description}</p>
-          <p className="mt-6 text-sm leading-7 text-[var(--muted)]">
-            This is our reading of the material, not a confirmed conclusion. Revisit it when newer information arrives or the people involved confirm the current situation.
+      <section className="mt-6 grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
+          <p className="section-eyebrow text-[var(--accent)]">What the records show</p>
+          <p className="mt-2 text-[15px] leading-7">{risk.observed ?? risk.description}</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
+          <p className={`section-eyebrow ${positive ? "text-[var(--good)]" : "text-[var(--critical)]"}`}>
+            {positive ? "Why it matters" : "Why it matters, and what's uncertain"}
           </p>
+          <p className="mt-2 text-[15px] leading-7">{risk.inference ?? "No interpretation was recorded for this item."}</p>
+        </div>
+      </section>
+
+      {risk.recommended_action && (
+        <section className="mt-4 rounded-2xl border border-[var(--accent)] bg-[var(--accent-soft)] p-6">
+          <p className="section-eyebrow text-[var(--accent)]">{positive ? "How to build on it" : "Suggested next step"}</p>
+          <p className="mt-2 text-[15px] leading-7">{risk.recommended_action}</p>
         </section>
       )}
 
-      {activeTab === "evidence" && (
-        <section className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Evidence</p>
-            <p className="text-xs text-[var(--muted)]">{evidence.length} short {evidence.length === 1 ? "extract" : "extracts"}</p>
-          </div>
-          <div className="mt-5 space-y-3">
-            {evidence.map((item) => (
-              <article key={item.id} className="rounded-xl bg-[var(--surface)] p-4">
-                <p className="text-sm leading-7 text-[var(--ink)]">{item.summary}</p>
-                <p className="mt-3 font-mono text-[11px] text-[var(--muted)]">
-                  {item.source}
-                  {item.locator ? ` · ${item.locator}` : ""}
-                  {item.dateLabel ? ` · ${item.dateLabel}` : ""}
-                </p>
-              </article>
-            ))}
-            {evidence.length === 0 && (
-              <p className="rounded-xl bg-[var(--surface)] p-4 text-sm leading-7 text-[var(--muted)]">
-                {notice ?? "No supporting extract can be shown for this concern."}
-              </p>
-            )}
-          </div>
-          {notice && evidence.length > 0 && (
-            <p className="mt-4 text-xs leading-6 text-[var(--muted)]">{notice}</p>
+      <section className="mt-10 mb-8">
+        <p className="section-eyebrow text-[var(--muted)]">Evidence, and why it counts</p>
+        <div className="mt-4 flex flex-col gap-3">
+          {evidence.map((item, index) => (
+            <article key={item.id} className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="cite-pill" style={{ verticalAlign: "middle" }}>{index + 1}</span>
+                <span className="text-sm font-semibold">{item.source}</span>
+                <span className={item.tier === "secondary" ? "type-pill" : "pill-good"}>
+                  {item.tier === "secondary" ? "call transcript" : "company record"}
+                </span>
+                {item.dateLabel && <span className="text-[11px] text-[var(--muted)]">{item.dateLabel}</span>}
+              </div>
+              <p className="mt-3 text-sm leading-7">“{item.summary}”</p>
+              {item.why && <p className="why-line mt-3"><strong>Why this counts: </strong>{item.why}</p>}
+            </article>
+          ))}
+          {evidence.length === 0 && (
+            <p className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-4 text-sm text-[var(--muted)]">
+              {notice ?? "No supporting record can be shown for this item."}
+            </p>
           )}
-        </section>
-      )}
-
-      {activeTab === "action" && (
-        <section className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
-          <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Suggested next step</p>
-          <p className="mt-4 text-sm leading-7 text-[var(--muted)]">
-            Review the facts with the relevant owner, confirm what is still current, and note the decision or follow-up action.
-          </p>
-        </section>
-      )}
+          {notice && evidence.length > 0 && <p className="text-xs text-[var(--muted)]">{notice}</p>}
+        </div>
+      </section>
     </main>
   );
 }

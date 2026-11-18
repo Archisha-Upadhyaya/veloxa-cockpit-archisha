@@ -1,18 +1,30 @@
+import { selectRiskItems } from "@/lib/data/fallback";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { dedupeAndRankRisks } from "@/lib/analysis/risk";
 import { humanizeConcernText } from "@/lib/evidence/snippet";
+
+type RiskRow = {
+  id: string;
+  title: string;
+  description: string;
+  inference?: string | null;
+  recommended_action?: string | null;
+  severity: string;
+  likelihood: string | null;
+  last_reviewed_at: string | null;
+  [key: string]: unknown;
+};
 
 export async function GET() {
   try {
     const supabase = createServerSupabaseClient();
     const asOf = new Date().toISOString();
-    const { data, error } = await supabase
-      .from("risk_items")
-      .select(
-        "id, risk_key, title, description, severity, likelihood, status, confidence, origin, first_observed_at, last_reviewed_at",
-      )
-      .in("status", ["open", "watch"])
-      .limit(40);
+    const { data: rows, error } = await selectRiskItems(
+      "id, risk_key, title, description, inference, recommended_action, polarity, area, owner_employee_key, evidence_count, severity, likelihood, status, confidence, origin, first_observed_at, last_reviewed_at",
+      (select) =>
+        supabase.from("risk_items").select(select).in("status", ["open", "watch"]).limit(40),
+    );
+    const data = rows as unknown as RiskRow[] | null;
 
     if (error?.code === "42703") {
       return Response.json({ risks: [], analysisReady: false });
@@ -22,6 +34,8 @@ export async function GET() {
       ...risk,
       title: humanizeConcernText(risk.title),
       description: humanizeConcernText(risk.description),
+      inference: risk.inference ? humanizeConcernText(risk.inference) : null,
+      recommended_action: risk.recommended_action ? humanizeConcernText(risk.recommended_action) : null,
     }));
     if (risks.length === 0) return Response.json({ risks: [], analysisReady: true });
     const links = await supabase

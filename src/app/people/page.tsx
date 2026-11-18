@@ -1,14 +1,28 @@
+import { Suspense } from "react";
 import PeopleDirectory from "@/components/people/PeopleDirectory";
 
-export default function PeoplePage() {
+type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
+
+/** Reads the deep-link query (department / chat / about) at request time. */
+async function PeopleWithParams({ searchParams }: { searchParams: SearchParams }) {
+  const { department, chat, about } = await searchParams;
   return (
-    <main className="people-page mx-auto w-full max-w-[1380px] flex-1 px-5 py-8 lg:px-10 lg:py-10">
-      <div className="mb-8 max-w-2xl">
-        <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[var(--accent)]">People / context</p>
-        <h1 className="mt-3 font-serif text-5xl tracking-[-.05em]">The room behind the numbers.</h1>
-        <p className="mt-4 text-sm leading-6 text-[var(--muted)]">Talk to people across the company without losing the line between what they know and what they don&apos;t.</p>
-      </div>
-      <PeopleDirectory />
+    <PeopleDirectory
+      initialDepartment={typeof department === "string" ? department : "All"}
+      initialChat={typeof chat === "string" ? chat : undefined}
+      initialTopic={typeof about === "string" ? about : undefined}
+    />
+  );
+}
+
+export default function PeoplePage({ searchParams }: { searchParams: SearchParams }) {
+  return (
+    <main className="mx-auto w-full max-w-[1380px] flex-1 px-5 py-8 lg:px-10">
+      {/* The static shell renders the directory immediately; the query
+          string is applied once the request-time part streams in. */}
+      <Suspense fallback={<PeopleDirectory />}>
+        <PeopleWithParams searchParams={searchParams} />
+      </Suspense>
     </main>
   );
 }

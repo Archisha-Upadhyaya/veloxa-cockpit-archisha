@@ -10,7 +10,7 @@ export default function SourcesView() {
     fetch("/api/timeline").then((response) => response.json()).then((result) => setSources(result.sources ?? [])).catch((error) => console.error("Sources request failed", error));
   }, []);
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-2">
       {sources.map((source) => (
         <article id={source.id} key={source.id} className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 transition hover:border-[var(--accent)]">
           <p className="font-mono text-xs uppercase tracking-[.12em] text-[var(--accent)]">{source.source_type}</p>

@@ -1,25 +1,67 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { generateGroundedAnswer } from "@/lib/ai/gemini";
+import { generateWithFailover } from "@/lib/ai/gemini";
 import { RISK_ANALYSIS_SYSTEM } from "@/lib/ai/prompts";
 import {
-  extractEvidenceSnippet,
   isSensitiveEvidence,
+  redactSensitiveLines,
   looksLikeRawDump,
 } from "@/lib/evidence/snippet";
 
-const riskSchema = z.object({
-  risks: z.array(z.object({
-    title: z.string().min(3).max(140),
-    description: z.string().min(20).max(620),
-    severity: z.enum(["low", "medium", "high", "critical"]),
-    likelihood: z.enum(["low", "medium", "high", "unknown"]),
-    confidence: z.enum(["low", "medium", "high"]),
-    evidence_ids: z.array(z.string().uuid()).min(1).max(8),
-  })).max(10),
+const citationSchema = z.object({
+  ref: z.string().min(1).max(12),
+  why: z.string().min(10).max(300),
 });
 
-export type AnalyzedRisk = z.infer<typeof riskSchema>["risks"][number];
+const findingSchema = z.object({
+  polarity: z.enum(["concern", "positive"]).default("concern"),
+  title: z.string().min(3).max(140),
+  observed: z.string().min(20).max(600),
+  inference: z.string().min(20).max(500),
+  recommended_action: z.string().min(10).max(360),
+  severity: z.enum(["low", "medium", "high", "critical"]),
+  likelihood: z.enum(["low", "medium", "high", "unknown"]),
+  confidence: z.enum(["low", "medium", "high"]),
+  area: z.string().max(60).optional(),
+  owner: z.string().max(20).optional(),
+  evidence: z.array(citationSchema).max(8),
+});
+
+const riskSchema = z.object({
+  // Forces a pass over every record before findings are written, which
+  // matters most on the smaller fallback models.
+  takeaways: z.array(z.object({ ref: z.string(), takeaway: z.string() })).optional(),
+  findings: z.array(findingSchema).max(14),
+});
+
+type ParsedFinding = z.infer<typeof findingSchema>;
+export type AnalyzedRisk = Omit<ParsedFinding, "evidence" | "area" | "owner"> & {
+  area: string | null;
+  owner_employee_key: string | null;
+  description: string;
+  evidence_ids: string[];
+  /** Why each cited record supports this finding, keyed by evidence id. */
+  rationale: Record<string, string>;
+};
+
+const SEVERITY_ORDER = ["low", "medium", "high", "critical"] as const;
+
+/**
+ * Severity is capped by how well the finding is supported: a concern backed
+ * by little evidence, or held at low confidence, can never rank as high.
+ */
+export function calibrateSeverity(
+  severity: AnalyzedRisk["severity"],
+  confidence: AnalyzedRisk["confidence"],
+  evidenceCount: number,
+): AnalyzedRisk["severity"] {
+  let cap: AnalyzedRisk["severity"] = "critical";
+  if (evidenceCount <= 1 || confidence === "low") cap = "medium";
+  if (evidenceCount === 0) cap = "low";
+  return SEVERITY_ORDER.indexOf(severity) > SEVERITY_ORDER.indexOf(cap) ? cap : severity;
+}
+
+
 
 const monthNumbers: Record<string, number> = {
   january: 0, jan: 0, february: 1, feb: 1, march: 2, mar: 2,
@@ -71,14 +113,25 @@ const likelihoodWeight: Record<string, number> = {
  * then the most recently reviewed. Postgres text ordering is alphabetical, so
  * this cannot be delegated to the database without a custom enum.
  */
+const confidenceWeight: Record<string, number> = { high: 3, medium: 2, low: 1 };
+
+/** Severity weighted by confidence: a well-evidenced high concern outranks a
+ * shaky critical one. */
+function priorityScore(risk: { severity: string; confidence?: string | null }) {
+  return (severityWeight[risk.severity] ?? 0) * (confidenceWeight[risk.confidence ?? "low"] ?? 1);
+}
+
 export function rankRisks<
   T extends {
     severity: string;
+    confidence?: string | null;
     likelihood?: string | null;
     last_reviewed_at?: string | null;
   },
 >(risks: T[]): T[] {
   return [...risks].sort((left, right) => {
+    const priority = priorityScore(right) - priorityScore(left);
+    if (priority !== 0) return priority;
     const severity =
       (severityWeight[right.severity] ?? 0) - (severityWeight[left.severity] ?? 0);
     if (severity !== 0) return severity;
@@ -108,6 +161,7 @@ export function dedupeAndRankRisks<
     description?: string | null;
     origin?: string | null;
     severity: string;
+    confidence?: string | null;
     likelihood?: string | null;
     last_reviewed_at?: string | null;
   },
@@ -133,99 +187,15 @@ export function dedupeAndRankRisks<
   return rankRisks(unique);
 }
 
-function conciseDescription(title: string) {
-  const lowerTitle = title.toLowerCase();
-  if (
-    lowerTitle.includes("hiring") ||
-    lowerTitle.includes("staffing") ||
-    lowerTitle.includes("retention")
-  ) {
-    return "Open roles and a paused hiring plan may leave key work without enough people. The roles, owners, and current status should be confirmed before the next planning cycle.";
-  }
-  if (lowerTitle.includes("capacity")) {
-    return "Workload, leave, and retention signals point to pressure on team capacity. The affected people and current coverage should be confirmed before more work is committed.";
-  }
-  if (lowerTitle.includes("incident")) {
-    return "Operational incidents may be affecting delivery and reliability. The current impact and recovery status should be confirmed.";
-  }
-  if (lowerTitle.includes("financial")) {
-    return "Financial figures do not reconcile cleanly across the available material. The underlying transactions and whether they remain unresolved should be confirmed.";
-  }
-  return "There are unresolved execution signals affecting a current commitment. The impact, owner, and next action should be confirmed.";
-}
-
-function normalizeDescription(title: string, description: string) {
-  const cleaned = description
-    .replace(/^Evidence-derived signal from \d+ connected records:\s*/i, "")
-    .replace(/\s*This is an analytical flag for review, not a confirmed conclusion\.?\s*$/i, "")
-    .replace(/\b(?:Sheet|Chunk|Row|File):?\s*[\w.-]+/gi, "")
-    .trim();
-  if (
-    cleaned.length < 40 ||
-    cleaned.length > 620 ||
-    looksLikeRawDump(cleaned) ||
-    isSensitiveEvidence(cleaned)
-  ) {
-    return conciseDescription(title);
-  }
+function cleanField(value?: string) {
+  if (!value) return undefined;
+  const cleaned = value.trim();
+  if (looksLikeRawDump(cleaned) || isSensitiveEvidence(cleaned)) return undefined;
   return cleaned;
 }
 
-const signalGroups = [
-  {
-    terms: ["overload", "workload", "capacity", "backfill", "unassigned", "leave", "resign", "notice period", "departure"],
-    title: "Internal capacity and retention signals need review",
-    severity: "medium" as const,
-    likelihood: "medium" as const,
-  },
-  {
-    terms: ["incident", "outage", "pagerduty", "on-call", "severity", "postmortem"],
-    title: "Operational incidents are creating delivery exposure",
-    severity: "high" as const,
-    likelihood: "medium" as const,
-  },
-  {
-    terms: ["payroll", "payslip", "reconciliation", "ledger", "burn", "arr", "control"],
-    title: "Financial records contain unresolved control signals",
-    severity: "high" as const,
-    likelihood: "medium" as const,
-  },
-  {
-    terms: ["hiring", "unfilled", "recruit", "role", "headcount"],
-    title: "Hiring and staffing capacity may constrain execution",
-    severity: "medium" as const,
-    likelihood: "medium" as const,
-  },
-  {
-    terms: ["launch", "ga", "slip", "blocked", "bug", "jira", "milestone"],
-    title: "Delivery commitments have unresolved execution signals",
-    severity: "high" as const,
-    likelihood: "medium" as const,
-  },
-];
 
-function inferRisksFromEvidence(evidence: Array<{ id: string; text: string; source: string }>) {
-  const safeEvidence = evidence.filter(
-    (item) => !isSensitiveEvidence(item.text) && !looksLikeRawDump(item.text),
-  );
-  return signalGroups.flatMap((group) => {
-    const matches = safeEvidence.filter((item) => {
-      const text = item.text.toLowerCase();
-      return group.terms.some((term) => text.includes(term));
-    }).slice(0, 6);
-    if (matches.length === 0) return [];
-    return [{
-      title: group.title,
-      description: conciseDescription(group.title),
-      severity: group.severity,
-      likelihood: group.likelihood,
-      confidence: matches.length >= 2 ? "medium" as const : "low" as const,
-      evidence_ids: matches.map((item) => item.id),
-    }];
-  });
-}
-
-export function riskFingerprint(risk: AnalyzedRisk) {
+export function riskFingerprint(risk: Pick<AnalyzedRisk, "title" | "evidence_ids">) {
   const evidence = [...risk.evidence_ids].sort().join(",");
   const category = risk.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   return createHash("sha256").update(`${category}|${evidence}`).digest("hex");
@@ -235,70 +205,126 @@ export async function analyzeEvidence(evidence: Array<{
   id: string;
   text: string;
   source: string;
-}>, asOf = new Date()) {
+  tier?: "primary" | "secondary";
+}>, asOf = new Date(), directory: Array<{
+  key: string;
+  name: string;
+  title: string;
+  department: string;
+}> = []) {
+  // The released corpus is small, so the model reads each record in full
+  // (with any pay lines removed) rather than a one-line summary.
   const currentEvidence = filterEvidenceAsOf(evidence, asOf)
     .filter((item) => !isSensitiveEvidence(item.text))
-    .map((item) => {
-      const [sourceTitle, ...locatorParts] = item.source.split(" · ");
-      const snippet = extractEvidenceSnippet(item.text, {
-        context:
-          "hiring staffing capacity retention payroll finance delivery launch incidents workload leave absence",
-        sourceTitle,
-        locator: locatorParts.join(" · "),
-      });
-      return {
-        ...item,
-        text: snippet.sensitive ? "" : snippet.summary,
-      };
-    })
-    .filter((item) => item.text.length > 0);
-  if (currentEvidence.length === 0) return [];
-  const prompt = `Analyze only the evidence below.
-The analysis date is ${asOf.toISOString().slice(0, 10)}. Do not use any
-record that explicitly describes an event after that date.
-Return JSON only in this exact shape:
-{"risks":[{"title":"short decision-relevant title","description":"what the evidence says, why it matters, and what remains uncertain","severity":"low|medium|high|critical","likelihood":"low|medium|high|unknown","confidence":"low|medium|high","evidence_ids":["uuid"]}]}
+    .map((item) => ({ ...item, text: redactSensitiveLines(item.text).slice(0, 3_000).trim() }))
+    .filter((item) => item.text.length > 0)
+    // Data-room records first; call transcripts are secondary support.
+    .sort((left, right) => (left.tier === "secondary" ? 1 : 0) - (right.tier === "secondary" ? 1 : 0));
+  if (currentEvidence.length === 0) return null;
 
-How many concerns:
-- Return up to 10 main concerns. A typical answer is 5-8.
-- Never pad the list to hit a number. If only 3 concerns are genuinely material, return 3. If 9 are material, return 9. The maximum is 10.
-- The overview surfaces the top 3 by severity; the Risks page shows the rest.
+  // Short labels instead of UUIDs: models copy "E7" reliably, and anything
+  // that does not map back to a supplied record is dropped.
+  const byRef = new Map(currentEvidence.map((item, index) => [`E${index + 1}`, item]));
+
+  const prompt = `You are preparing the CEO's morning brief. Analyze only the evidence below.
+The analysis date is ${asOf.toISOString().slice(0, 10)}. Ignore any record describing an event after that date.
+
+Work in two steps, both in the JSON:
+1. "takeaways": for EVERY record, one line on what it tells the CEO (a number, a change, a gap, a conflict with another record, an unanswered question). Look especially for: figures that differ between records, processes done unusually or by a stand-in, questions or requests with no recorded answer, plans that changed, people leaving or on leave, survey scores moving, spend against plan.
+2. "findings": group the takeaways into findings.
+
+Return JSON only, in exactly this shape:
+{"takeaways":[{"ref":"E1","takeaway":"..."}],
+"findings":[{
+  "polarity":"concern|positive",
+  "title":"specific: name the project, team, figure or date",
+  "observed":"only what the cited records state — names, numbers, dates. 1-3 sentences.",
+  "inference":"why this matters to the business, and what is still uncertain. Must add something the observed text does not say.",
+  "recommended_action":"one concrete step: which role the CEO should ask, and for exactly what figure, document or decision",
+  "severity":"low|medium|high|critical",
+  "likelihood":"low|medium|high|unknown",
+  "confidence":"low|medium|high",
+  "area":"the one department this belongs to, from the list below",
+  "owner":"employee id of the one person the CEO should talk to about it, from the list below",
+  "evidence":[{"ref":"E3","why":"what in this record supports the finding, in one sentence"}]
+}]}
+
+What to return:
+- Up to 10 concerns (things going wrong or at risk) and up to 4 positives (things genuinely going well). Never pad.
+- A positive needs the same standard of evidence as a concern. For a positive, recommended_action is how to protect or build on it.
+- Every finding must cite at least one record, and should cite every record that supports it. "why" must state the specific fact in that record that supports the finding, e.g. "Board update says GA moved from 15 Sep to an unstated date after reliability work", never "Contains the letter" or "Mentions Atlas".
+- Prefer [primary] records; [secondary] call transcripts may support or add colour, but a finding resting only on a transcript must be confidence "low".
+- confidence: high = two or more primary records agree; medium = one primary record, or primary + transcript; low = transcript only, or records conflict.
+- severity reflects business impact if true; do not inflate it.
 
 Rules:
-- Identify only material business concerns or explicit evidence gaps.
-- Include internal operating concerns, not only external, financial, or launch risks:
-  workload imbalance, overloaded or underutilized employees, team capacity,
-  leave/absence coverage, unresolved employee issues, handoff failures,
-  burnout/retention signals, and operational bottlenecks.
-- Do not invent owners, deadlines, facts, or causes.
-- Do not label an employee overloaded or underutilized unless the evidence supports
-  the comparison through workload, tasks, leave, incidents, assignments, or
-  explicit employee/manager statements. State the evidence and uncertainty.
-- Use one risk per distinct underlying issue.
-- Cite the minimum evidence IDs that support each risk.
-- If the same issue appears in multiple files, produce one risk, not duplicates.
-- Prefer a cautious evidence gap over a fabricated conclusion.
-- Keep the description suitable for a detail page: explain the observed facts,
-  the inference, and the uncertainty in 2-4 plain sentences.
-- Do not copy table rows, CSV lines, headers, file names, or chunk IDs.
-- Do not mention individual salaries, payroll rows, or named employee pay.
+- One finding per underlying issue; merge duplicates across files.
+- Do not invent owners, causes, deadlines or dates. Only use dates that appear in the evidence.
+- Do not call an employee overloaded or underused unless the evidence compares workload, leave, tasks or explicit statements.
+- recommended_action must never be generic ("review with the owner", "confirm the status").
+- Write for a busy CEO: plain words, no jargon, no table rows, file names or chunk ids.
+- Never mention individual salaries, payroll rows, or anyone's pay.
 
-Evidence:
-${currentEvidence.map((item) => `[${item.id}] ${item.source}\n${item.text}`).join("\n\n")}`;
+${directory.length ? `Company directory (id · name · title · department):
+${directory.map((person) => `${person.key} · ${person.name} · ${person.title} · ${person.department}`).join("\n")}
+
+` : ""}Evidence:
+${[...byRef.entries()].map(([ref, item]) => `[${ref}] [${item.tier ?? "primary"}] ${item.source}\n${item.text}`).join("\n\n")}`;
+
   try {
-    const raw = await generateGroundedAnswer(
+    const { text: raw, model } = await generateWithFailover(
       prompt,
       RISK_ANALYSIS_SYSTEM,
-      { maxOutputTokens: 4_096, timeoutMs: 30_000 },
+      { task: "analysis", maxOutputTokens: 12_000, timeoutMs: 60_000, json: true },
     );
     const json = raw.match(/\{[\s\S]*\}/)?.[0];
     if (!json) throw new Error("Risk analysis did not return JSON.");
-    return riskSchema.parse(JSON.parse(json)).risks.map((risk) => ({
-      ...risk,
-      description: normalizeDescription(risk.title, risk.description),
-    }));
+    const risks: AnalyzedRisk[] = riskSchema.parse(JSON.parse(json)).findings.flatMap((finding) => {
+      const rationale: Record<string, string> = {};
+      for (const citation of finding.evidence) {
+        const record = byRef.get(citation.ref.trim().toUpperCase());
+        const why = cleanField(citation.why);
+        if (record && why && !rationale[record.id]) rationale[record.id] = why;
+      }
+      const evidenceIds = Object.keys(rationale);
+      // No valid evidence, no finding.
+      if (evidenceIds.length === 0) return [];
+      const observed = cleanField(finding.observed);
+      const inference = cleanField(finding.inference);
+      const action = cleanField(finding.recommended_action);
+      if (!observed || !inference || !action) return [];
+      const primaryCount = evidenceIds.filter(
+        (id) => currentEvidence.find((item) => item.id === id)?.tier !== "secondary",
+      ).length;
+      const confidence = primaryCount === 0 ? "low" : finding.confidence;
+      const departments = new Set(directory.map((person) => person.department));
+      const owner = directory.find((person) => person.key === finding.owner?.trim().toUpperCase());
+      const area = finding.area && departments.has(finding.area.trim())
+        ? finding.area.trim()
+        : owner?.department ?? null;
+      return [{
+        area,
+        owner_employee_key: owner?.key ?? null,
+        polarity: finding.polarity,
+        title: finding.title.trim(),
+        description: `${observed} ${inference}`.slice(0, 620),
+        observed,
+        inference,
+        recommended_action: action,
+        severity:
+          finding.polarity === "positive"
+            ? "low"
+            : calibrateSeverity(finding.severity, confidence, evidenceIds.length),
+        likelihood: finding.likelihood,
+        confidence,
+        evidence_ids: evidenceIds,
+        rationale,
+      }];
+    });
+    return { risks, model };
   } catch (error) {
-    console.error("Model risk analysis unavailable; using evidence-derived signals", error);
-    return inferRisksFromEvidence(currentEvidence);
+    // No canned findings: the caller keeps what the database already holds.
+    console.error("Model risk analysis unavailable; keeping stored concerns", error);
+    return null;
   }
 }

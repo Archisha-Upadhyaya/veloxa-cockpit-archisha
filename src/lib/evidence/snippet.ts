@@ -844,49 +844,16 @@ export function extractEvidenceSnippet(
  * time rather than requiring a destructive re-seed.
  */
 export function humanizeConcernText(value: string) {
+  // Generic readability fixes only; no rule refers to a specific person,
+  // project or file.
   return compact(value)
-    .replace(/\bT1\/T2\b/gi, "the CEO and CFO calls")
-    .replace(/\bT1\b/g, "the CEO kickoff call")
-    .replace(/\bT2\b/g, "the CFO call")
-    .replace(/\bT3\b/g, "the Head of People call")
-    .replace(/\bT4\b/g, "the Head of Marketing call")
-    .replace(/\bT5\b/g, "the VP Engineering call")
-    .replace(/\bT6[abcd]\b/gi, "the CEO voice note")
-    .replace(/\bemails? 0?2\s*\/\s*0?3\b/gi, "the payslip emails")
-    .replace(/\bemail 0?1\b/gi, "the February payroll email")
-    .replace(/\bemail \d{2}\b/gi, "a follow-up email")
-    .replace(/\bVX\d{3}\s*\(([^)]+)\)/g, (_match, inner: string) => {
-      return inner.split(",")[0].trim();
-    })
-    .replace(/\bVX\d{3}\b/g, "the employee")
-    .replace(/\bPMM\b/g, "Product Marketing Manager")
-    .replace(/\bA-\d{3}\b/g, "")
+    .replace(/\s*\(VX\d{3}\)/g, "")
+    .replace(/\bVX\d{3}\b/g, "an employee")
+    .replace(/\b(?:chunk|row|sheet)[- ]?\d+\b/gi, "")
     .replace(/\bthe (?:current |loaded )?corpus\b/gi, "the released material")
-    .replace(/\bloaded packs\b/gi, "released material")
-    .replace(/\bdata-room index\b/gi, "source index")
-    .replace(
-      /\bthe cockpit always prefers the structured record and logs the conflict\b/gi,
-      "we prefer the exported figures and keep the conflict visible",
-    )
-    .replace(/\bthe cockpit\b/gi, "we")
-    .replace(/\bthe ledger\b/gi, "the finance entries")
-    .replace(/\bstructured record\b/gi, "exported figures")
     .replace(/\bInference:\s*/g, "What this means: ")
-    .replace(/\bevidence gap\b/gi, "gap in what we know")
-    .replace(/\bno recorded resolution\b/gi, "no recorded answer")
-    .replace(/\bshows notice period with exit date\b/gi, "is on notice with an exit date of")
-    .replace(/\bDay-(\d) incident and git exports\b/gi, "Day-$1 engineering release")
-    .replace(/\b(the Day-\d engineering release) land\b/gi, "$1 lands")
-    .replace(/\bDay-(\d) pack\b/gi, "Day-$1 release")
-    .replace(/\bcompounding risk 1\b/gi, "compounding the Atlas schedule concern")
-    .replace(
-      /\bengineering velocity is unmeasurable in the (?:current |released )?material\b/gi,
-      "Engineering delivery cannot be measured yet",
-    )
     .replace(/\s+/g, " ")
-    .replace(/(^|[.!?:]\s+)([a-z])/g, (_match, prefix: string, letter: string) => {
-      return `${prefix}${letter.toUpperCase()}`;
-    })
+    .replace(/(^|[.!?:]\s+)([a-z])/g, (_match, prefix: string, letter: string) => `${prefix}${letter.toUpperCase()}`)
     .trim();
 }
 
@@ -970,98 +937,31 @@ export function dedupeEvidenceSummaries<T extends { summary: string }>(items: T[
  * human answer, or null when the answer is a raw dump or leaks pay data.
  */
 export function sanitizeEmployeeAnswer(answer: string): string | null {
+  // Generic clean-up only: no phrase here is specific to any person or file.
   let text = normalize(answer)
-    .replace(/^```[\s\S]*?```$/g, (block) => block.replace(/```[a-z]*\n?/gi, ""))
+    .replace(/```[a-z]*\n?/gi, "")
+    .replace(/^\s*["“]|["”]\s*$/g, "")
     .replace(/\b(?:as an? (?:ai|assistant|language model)|as the (?:ai|assistant))\b[,:]?\s*/gi, "")
-    .replace(
-      /\bThe CEO'?s (?:call )?transcript says that about ["“][^"”]+["”]\s*[—–-]\s*that'?s me,?\s*(?:and\s+)?/gi,
-      "Yes, that's me. ",
-    )
-    .replace(
-      /\bThat'?s what the CFO'?s call transcript says about me\.\s*/gi,
-      "Meera said that about me, and she has a point. ",
-    )
-    .replace(/\bThat is my interpretation, not a recorded fact:\s*/gi, "Honestly, ")
-    .replace(/\bI can confirm from (?:the )?(?:records?|data|transcripts?)\s*(?:that|:)\s*/gi, "")
-    .replace(/\bI can confirm that\s+/gi, "")
-    .replace(/\bI do not have visibility into\b/gi, "I can't confirm")
-    .replace(/\bI don'?t have visibility into\b/gi, "I can't confirm")
-    .replace(/\bMy role gives me visibility into\b/gi, "I know")
-    .replace(/\bthe resolved incident record\b/gi, "the incident detail")
-    .replace(/\bthe incident-by-incident record\b/gi, "the incident detail")
-    .replace(/\buntil the Day-?\d+ data arrives\b/gi, "until the new information comes in")
-    .replace(/\bthe Day-?\d+ (?:incidents? )?(?:data|export|detail|source)\b/gi, "the incident detail")
-    .replace(/\bDay-?\d+ data\b/gi, "the new information")
-    .replace(/\bthe cockpit links the two as an assumption\b/gi, "the link is an assumption")
-    .replace(/\bthe cockpit (?:doesn'?t|does not) have (?:them|it) yet either\b/gi, "I don't have that detail either")
-    .replace(/\bcockpit surfaces\b/gi, "front-end surfaces")
-    .replace(/\bthe cockpit\b/gi, "we")
-    .replace(/\bcockpit\b/gi, "dashboard")
-    .replace(/\bthe ledger shows\b/gi, "the finance entries show")
-    .replace(/\bthe finance entries shows\b/gi, "the finance entries show")
-    .replace(/\bthe January sheet\b/gi, "the January payroll")
-    .replace(/\bas far as what I have shows\b/gi, "as far as I know")
-    .replace(/\bMy status is notice period with an exit date of\b/gi, "I'm on notice, with an exit date of")
-    .replace(/\bthe incident detail I don'?t have yet\b/gi, "I don't have the incident detail yet")
-    .replace(/\bthat'?s the incident detail\b/gi, "I don't have it")
-    .replace(/\bI can'?t confirm what you'?d want here:\s*/gi, "I don't have that detail: ")
+    .replace(/\bI can confirm from (?:the )?(?:records?|data|evidence|corpus|notes)\s*(?:that|:)?\s*/gi, "")
+    .replace(/\b(?:based on|according to|from) (?:the |my )?(?:connected |supplied |provided )?(?:records?|evidence|data|context|corpus|notes)\b[,:]?\s*/gi, "")
+    .replace(/\b(?:the|this) (?:corpus|dataset)\b/gi, "what I know")
     .replace(/\s*\(VX\d{3}\)/gi, "")
-    .replace(/\bVX\d{3}\b/gi, "someone")
-    .replace(/\bthe budget-vs-actuals sheet\b/gi, "the budget-versus-actuals view")
-    .replace(/\bthe leave register and pulse survey\b/gi, "the leave and pulse data")
-    .replace(/\bthe Jira and git exports?\b/gi, "the team's task and code history")
-    .replace(/\bthe Jira export\b/gi, "the task tracker")
-    .replace(/\bthe team'?s task and code history\b/gi, "the team")
-    .replace(/\b(?:the )?(?:PagerDuty and )?(?:incident )?exports?\b/gi, "the detail")
-    .replace(/\bVX\d{3}\b/gi, "someone")
-    .replace(/\bMKT-PS entries\b/gi, "the paid-search entries")
-    .replace(/\bthe ledger\b/gi, "the finance entries")
-    .replace(/\bthe recording is the recording\b/gi, "I stand by what I said")
-    .replace(/\b(?:which|that) (?:hasn'?t|haven'?t|isn'?t|aren'?t) (?:been )?loaded(?: yet)?\b/gi, "which I don't have yet")
-    .replace(/\b(?:aren'?t|isn'?t) loaded yet\b/gi, "I don't have yet")
-    .replace(/\b(?:hasn'?t|haven'?t) (?:been )?loaded(?: yet)?\b/gi, "I don't have yet")
-    .replace(/\b(?:the )?(?:current |loaded )?corpus\b/gi, "what I have")
-    .replace(/\bfrom the records\b/gi, "from what I know")
-    .replace(/\bthe (?:current )?records?\b/gi, "what I know")
-    .replace(/\b(?:based on|according to) (?:the )?(?:connected )?(?:records?|evidence|data|context|corpus)\b[,:]?\s*/gi, "")
-    .replace(/\bfrom (?:the )?(?:connected )?(?:records?|evidence|corpus)\b[,:]?\s*/gi, "")
-    .replace(/\b(?:the|this) (?:connected )?(?:records?|evidence|corpus|dataset)\b/gi, "what I know")
-    .replace(/\b(?:retrieved|supplied|provided) evidence\b/gi, "what I've seen")
-    .replace(/\bas far as what I have shows\b/gi, "as far as I know")
-    .replace(/\bthe leave and pulse data I don'?t have yet\b/gi, "I don't have the leave and pulse data yet")
-    .replace(/\bincident specifics live in the detail\b/gi, "I'd need the incident report")
-    .replace(
-      /\bthe incident detail I don'?t have yet\s*[—–-]\s*I don'?t have it\b/gi,
-      "I don't have the incident detail yet",
-    )
-    .replace(/\bno (?:record|evidence|data) (?:is|was) available\b/gi, "I'm not sure")
-    .replace(/\b(?:the )?system (?:shows|says|indicates)\b/gi, "I understand")
-    .replace(/\b(?:chunk|file|sheet|table|row|column|export)s?\b/gi, "detail")
+    .replace(/\bVX\d{3}\b/gi, "a colleague")
     .replace(/\s+/g, " ")
     .trim();
 
   if (!text) return null;
   if (containsCompensationData(text)) return null;
   if (looksLikeRawDump(text)) return null;
-  if (
-    /\b(?:corpus|dataset|retrieval|evidence|records?|transcripts?|loaded|visibility|chunk|indexed|VX\d{3}|Day-\d|cockpit|connected|phonetic|entity resolution|prompt|agent)\b/i.test(
-      text,
-    )
-  ) {
+  // Out-of-character answers are discarded rather than patched.
+  if (/\b(?:corpus|dataset|retrieval|chunk|indexed|prompt|language model|cockpit)\b/i.test(text)) {
     return null;
   }
 
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-  if (sentences.length > 3) text = sentences.slice(0, 3).join(" ");
-  if (text.length > 620) text = clampSentence(text, 620);
+  const sentences = text.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean);
+  if (sentences.length > 5) text = sentences.slice(0, 5).join(" ");
+  if (text.length > 900) text = clampSentence(text, 900);
   if (!text) return null;
-  text = text.replace(
-    /([.!?]\s+)([a-z])/g,
-    (_match, prefix: string, letter: string) => `${prefix}${letter.toUpperCase()}`,
-  );
   text = `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
   if (!/[.!?…]$/.test(text)) text += ".";
   return text;

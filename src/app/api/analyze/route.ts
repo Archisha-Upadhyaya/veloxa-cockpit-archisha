@@ -1,63 +1,57 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { analyzeEvidence, filterEvidenceAsOf, riskFingerprint } from "@/lib/analysis/risk";
-import { defaultMatchThreshold, embedTexts } from "@/lib/rag/embeddings";
-import { isSensitiveEvidence } from "@/lib/evidence/snippet";
+import { loadAnalysisEvidence } from "@/lib/analysis/evidence";
 
-type EvidenceRow = {
-  evidence_id: string;
-  evidence_text: string;
-  source_title: string;
-  locator: string;
-};
+type Supabase = ReturnType<typeof createServerSupabaseClient>;
 
-async function loadAnalysisEvidence(
-  supabase: ReturnType<typeof createServerSupabaseClient>,
-  vectors: number[][],
-  asOf: string,
+async function saveFinding(
+  supabase: Supabase,
+  finding: NonNullable<Awaited<ReturnType<typeof analyzeEvidence>>>["risks"][number],
 ) {
-  const retrieved = new Map<string, EvidenceRow>();
-  for (const vector of vectors) {
-    const result = await supabase.rpc("match_evidence", {
-      query_embedding: vector,
-      match_threshold: Math.min(defaultMatchThreshold(), 0.48),
-      match_count: 8,
-      as_of: asOf,
-    });
-    if (result.error) {
-      if (!result.error.message.includes("match_evidence")) throw new Error(result.error.message);
-      break;
-    }
-    for (const row of (result.data ?? []) as EvidenceRow[]) {
-      if (!isSensitiveEvidence(row.evidence_text)) {
-        retrieved.set(row.evidence_id, row);
-      }
-    }
+  const fingerprint = riskFingerprint(finding);
+  const row = {
+    risk_key: `analysis:${fingerprint.slice(0, 16)}`,
+    fingerprint,
+    title: finding.title,
+    description: finding.description,
+    severity: finding.severity,
+    likelihood: finding.likelihood,
+    confidence: finding.confidence,
+    status: "open",
+    origin: "analysis",
+    evidence_count: finding.evidence_ids.length,
+    last_reviewed_at: new Date().toISOString(),
+  };
+  const extended = {
+    ...row,
+    observed: finding.observed,
+    inference: finding.inference,
+    recommended_action: finding.recommended_action,
+    polarity: finding.polarity,
+    area: finding.area,
+    owner_employee_key: finding.owner_employee_key,
+  };
+  // A database without the newer columns still gets the finding saved.
+  let saved = await supabase.from("risk_items").upsert(extended, { onConflict: "risk_key" }).select("id").single();
+  if (saved.error?.code === "42703" || saved.error?.code === "PGRST204") {
+    saved = await supabase.from("risk_items").upsert(row, { onConflict: "risk_key" }).select("id").single();
   }
-  if (retrieved.size > 0) return [...retrieved.values()];
+  if (saved.error) throw new Error(saved.error.message);
 
-  const fallback = await supabase
-    .from("evidence_items")
-    .select(
-      "id, evidence_text, source_locations(locator, source_documents(title))",
-    )
-    .eq("is_sensitive", false)
-    .not("embedding", "is", null)
-    .lte("available_at", asOf)
-    .order("available_at", { ascending: false })
-    .limit(80);
-  if (fallback.error) throw new Error(fallback.error.message);
-  return ((fallback.data ?? []) as unknown as Array<{
-    id: string;
-    evidence_text: string;
-    source_locations: Array<{ locator: string; source_documents: Array<{ title: string }> }>;
-  }>)
-    .filter((item) => !isSensitiveEvidence(item.evidence_text))
-    .map((item) => ({
-      evidence_id: item.id,
-      evidence_text: item.evidence_text,
-      source_title: item.source_locations?.[0]?.source_documents?.[0]?.title ?? "Unknown source",
-      locator: item.source_locations?.[0]?.locator ?? "",
-    }));
+  await supabase.from("risk_evidence").delete().eq("risk_id", saved.data.id);
+  const links = finding.evidence_ids.map((evidenceId) => ({
+    risk_id: saved.data.id,
+    evidence_item_id: evidenceId,
+    rationale: finding.rationale[evidenceId] ?? null,
+  }));
+  let linked = await supabase.from("risk_evidence").insert(links);
+  if (linked.error?.code === "42703" || linked.error?.code === "PGRST204") {
+    linked = await supabase.from("risk_evidence").insert(
+      links.map((link) => ({ risk_id: link.risk_id, evidence_item_id: link.evidence_item_id })),
+    );
+  }
+  if (linked.error) throw new Error(linked.error.message);
+  return fingerprint;
 }
 
 export async function POST() {
@@ -67,63 +61,55 @@ export async function POST() {
   if (run.error) return Response.json({ error: run.error.message }, { status: 502 });
 
   try {
-    const analysisQueries = [
-      "delivery schedule launch reliability incidents engineering workload and unresolved bugs",
-      "cash burn revenue ARR financial controls payroll exceptions and accounting discrepancies",
-      "hiring plans employee departures retention leave and team capacity",
-      "internal workload imbalance overloaded employees underused employees team capacity leave absences unresolved employee concerns and management coverage",
-      "employee wellbeing burnout conflict payroll questions retention signals and operational handoffs",
-      "customer commitments invoices launch readiness and operational dependencies",
-      "leadership priorities conflicting metrics assumptions and missing evidence",
-    ];
-    let queryVectors: number[][] = [];
-    try {
-      queryVectors = await embedTexts(analysisQueries, "RETRIEVAL_QUERY");
-    } catch (error) {
-      console.error("Risk query embedding unavailable; using embedded corpus fallback", error);
+    const evidence = filterEvidenceAsOf(await loadAnalysisEvidence(supabase, asOf), new Date(asOf));
+    const people = await supabase
+      .from("employee_profiles")
+      .select("employee_key, display_name, role_title, department")
+      .eq("is_active", true);
+    if (people.error) throw new Error(people.error.message);
+    const analysis = await analyzeEvidence(
+      evidence,
+      new Date(asOf),
+      (people.data ?? []).map((person) => ({
+        key: person.employee_key,
+        name: person.display_name,
+        title: person.role_title ?? "",
+        department: person.department ?? "Unassigned",
+      })),
+    );
+    if (analysis === null) {
+      // Live analysis failed: keep every stored finding untouched.
+      const stored = await supabase
+        .from("risk_items")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["open", "watch"]);
+      if (stored.error) throw new Error(stored.error.message);
+      await supabase.from("analysis_runs").update({
+        status: "failed",
+        completed_at: new Date().toISOString(),
+        evidence_considered: evidence.length,
+        error_message: "Live analysis unavailable; stored findings kept.",
+      }).eq("id", run.data.id);
+      return Response.json({
+        run_id: run.data.id,
+        mode: "stored",
+        evidence_considered: evidence.length,
+        risks_created: 0,
+        stored_open_findings: stored.count ?? 0,
+      });
     }
-    const retrieved = await loadAnalysisEvidence(supabase, queryVectors, asOf);
-    const evidence = retrieved.map((item) => ({
-      id: item.evidence_id,
-      text: item.evidence_text,
-      source: `${item.source_title} · ${item.locator}`,
-    }));
-    const analyzed = await analyzeEvidence(filterEvidenceAsOf(evidence, new Date(asOf)), new Date(asOf));
-    const byTitle = new Map<string, (typeof analyzed)[number]>();
-    for (const risk of analyzed) {
-      const key = risk.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+    const byTitle = new Map<string, (typeof analysis.risks)[number]>();
+    for (const finding of analysis.risks) {
+      const key = finding.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
       const existing = byTitle.get(key);
-      if (!existing || risk.evidence_ids.length > existing.evidence_ids.length) {
-        byTitle.set(key, risk);
-      }
+      if (!existing || finding.evidence_ids.length > existing.evidence_ids.length) byTitle.set(key, finding);
     }
-    const risks = [...byTitle.values()].slice(0, 10);
-    let risksCreated = 0;
+    const findings = [...byTitle.values()];
     const activeFingerprints = new Set<string>();
-    for (const risk of risks) {
-      const fingerprint = riskFingerprint(risk);
-      activeFingerprints.add(fingerprint);
-      const saved = await supabase.from("risk_items").upsert({
-        risk_key: `analysis:${fingerprint.slice(0, 16)}`,
-        fingerprint,
-        title: risk.title,
-        description: risk.description,
-        severity: risk.severity,
-        likelihood: risk.likelihood,
-        confidence: risk.confidence,
-        status: "open",
-        origin: "analysis",
-        evidence_count: risk.evidence_ids.length,
-        last_reviewed_at: new Date().toISOString(),
-      }, { onConflict: "risk_key" }).select("id").single();
-      if (saved.error) throw new Error(saved.error.message);
-      await supabase.from("risk_evidence").delete().eq("risk_id", saved.data.id);
-      const links = await supabase.from("risk_evidence").insert(
-        risk.evidence_ids.map((evidenceId) => ({ risk_id: saved.data.id, evidence_item_id: evidenceId })),
-      );
-      if (links.error) throw new Error(links.error.message);
-      risksCreated += 1;
-    }
+    for (const finding of findings) activeFingerprints.add(await saveFinding(supabase, finding));
+
+    // Anything from an earlier analysis that this run no longer supports is closed.
     const previous = await supabase
       .from("risk_items")
       .select("id, fingerprint")
@@ -131,7 +117,7 @@ export async function POST() {
       .in("status", ["open", "watch"]);
     if (previous.error) throw new Error(previous.error.message);
     const staleIds = (previous.data ?? [])
-      .filter((risk) => risk.fingerprint && !activeFingerprints.has(risk.fingerprint))
+      .filter((risk) => !risk.fingerprint || !activeFingerprints.has(risk.fingerprint))
       .map((risk) => risk.id);
     if (staleIds.length > 0) {
       const closed = await supabase
@@ -145,10 +131,18 @@ export async function POST() {
       status: "completed",
       completed_at: new Date().toISOString(),
       evidence_considered: evidence.length,
-      risks_created: risksCreated,
-      model_version: process.env.GEMINI_CHAT_MODEL ?? "gemini-3.8-flash",
+      risks_created: findings.length,
+      model_version: analysis.model,
     }).eq("id", run.data.id);
-    return Response.json({ run_id: run.data.id, evidence_considered: evidence.length, risks_created: risksCreated });
+    return Response.json({
+      run_id: run.data.id,
+      mode: "live",
+      model: analysis.model,
+      evidence_considered: evidence.length,
+      concerns: findings.filter((finding) => finding.polarity === "concern").length,
+      positives: findings.filter((finding) => finding.polarity === "positive").length,
+      closed: staleIds.length,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Risk analysis failed.";
     await supabase.from("analysis_runs").update({ status: "failed", completed_at: new Date().toISOString(), error_message: message }).eq("id", run.data.id);

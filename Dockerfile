@@ -12,7 +12,7 @@ RUN pnpm install --frozen-lockfile
 FROM dependencies AS tools
 
 COPY . .
-CMD ["./node_modules/.bin/tsx", "scripts/seed-supabase.ts"]
+CMD ["./node_modules/.bin/tsx", "scripts/purge-seeded.ts"]
 
 FROM dependencies AS builder
 

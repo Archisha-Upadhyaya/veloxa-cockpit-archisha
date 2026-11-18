@@ -1,6 +1,6 @@
 # Local, self-contained Veloxa Cockpit.
 #
-# The same Postgres schema and seed data used by a hosted Supabase project run
+# The same Postgres schema used by a hosted Supabase project run
 # here. PostgREST exposes the database through the Supabase-compatible API the
 # app already uses, so every route and every migration works without a hosted
 # Supabase project.
@@ -91,7 +91,7 @@ services:
       - -c
       - |
         until node -e "fetch('http://gateway:8000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"; do sleep 2; done
-        ./node_modules/.bin/tsx scripts/seed-supabase.ts
+        ./node_modules/.bin/tsx scripts/purge-seeded.ts
 
   app:
     build:

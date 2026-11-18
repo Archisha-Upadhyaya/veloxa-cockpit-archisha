@@ -1,5 +1,7 @@
 import { embedTexts } from "@/lib/rag/embeddings";
-import { retrieveEvidence } from "@/lib/rag/retrieve";
+import { retrieveEvidence, type RetrievedEvidence } from "@/lib/rag/retrieve";
+import { keywordEvidenceSearch } from "@/lib/data/fallback";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   dedupeEvidenceSummaries,
   extractEvidenceSnippet,
@@ -23,15 +25,32 @@ export async function POST(request: Request) {
       return Response.json({ error: "query is required" }, { status: 400 });
     }
 
-    const [queryEmbedding] = await embedTexts([query], "RETRIEVAL_QUERY");
-    if (!queryEmbedding) {
-      throw new Error("Embedding provider returned no query embedding.");
+    let evidence: RetrievedEvidence[] = [];
+    let mode: "semantic" | "stored_keyword" = "semantic";
+    try {
+      const [queryEmbedding] = await embedTexts([query], "RETRIEVAL_QUERY");
+      if (!queryEmbedding) {
+        throw new Error("Embedding provider returned no query embedding.");
+      }
+      evidence = await retrieveEvidence(queryEmbedding, {
+        asOf: body.asOf,
+        limit: body.limit,
+        threshold: body.threshold,
+      });
+    } catch (error) {
+      console.error("Semantic retrieval unavailable; searching stored evidence", error);
+      mode = "stored_keyword";
     }
-    const evidence = await retrieveEvidence(queryEmbedding, {
-      asOf: body.asOf,
-      limit: body.limit,
-      threshold: body.threshold,
-    });
+    if (evidence.length === 0) {
+      const stored = await keywordEvidenceSearch(createServerSupabaseClient(), query, {
+        asOf: body.asOf,
+        limit: body.limit,
+      });
+      if (stored.length > 0) {
+        evidence = stored;
+        mode = "stored_keyword";
+      }
+    }
 
     const seen = new Set<string>();
     const snippets = evidence
@@ -61,6 +80,7 @@ export async function POST(request: Request) {
 
     return Response.json({
       query,
+      mode,
       evidence: dedupeEvidenceSummaries(snippets).slice(0, 6),
     });
   } catch (error) {

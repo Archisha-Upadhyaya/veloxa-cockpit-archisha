@@ -1,271 +1,475 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import Link from "next/link";
+import { useNow } from "@/components/useNow";
+import { areaColor, ConfidencePill, SeverityPill, AreaPill, StatusDot } from "@/components/pills";
 
-type Risk = {
+type Finding = {
   id: string;
   risk_key: string;
   title: string;
   description: string;
+  observed?: string | null;
+  inference?: string | null;
+  recommended_action?: string | null;
+  polarity?: string | null;
+  area?: string | null;
+  owner_employee_key?: string | null;
   severity: string;
-  likelihood: string;
-  status: string;
-  summary?: string;
+  confidence?: string | null;
+  evidence_count?: number | null;
 };
 type Source = { id: string; title: string; source_type: string; release_day: string };
-type DashboardData = {
-  stats: { people: number; evidence: number; embedded: number; departments: Record<string, number> };
-  latestSources: Source[];
-  priorityRisks: Risk[];
-  analysisReady?: boolean;
+type Brief = {
+  ceo: { name: string; title: string } | null;
+  stats: { people: number; evidence: number; sources: number; departments: Record<string, number> };
+  concerns: Finding[];
+  positives: Finding[];
+  latestDay: string | null;
+  newSources: Source[];
+  lastAnalysis: { at: string; model: string | null } | null;
 };
-type EvidenceHit = {
-  evidence_id: string;
-  summary: string;
-  similarity: number;
-  source_title: string;
-  locator: string;
-  dateLabel?: string;
+type Person = { empId: string; name: string; title: string; department: string; isActive: boolean };
+type AskSource = { n: number; id: string; summary: string; source: string; date: string | null };
+/** answer is null while the reply is on its way. */
+type AskTurn = { question: string; answer: string | null; sources: AskSource[]; mode?: string };
+type HealthArea = {
+  area: string;
+  status: "good" | "watch" | "act" | "unknown";
+  headline: string;
+  why: string;
+  evidence: Array<{ summary: string; source: string; tier: string }>;
+  findings: Array<{ key: string; title: string; polarity: string | null }>;
+  contact: { empId: string; name: string; title: string } | null;
+  people: number;
 };
 
-const emptyData: DashboardData = {
-  stats: { people: 0, evidence: 0, embedded: 0, departments: {} },
-  latestSources: [],
-  priorityRisks: [],
-  analysisReady: false,
-};
-
-function isDashboardData(value: unknown): value is DashboardData {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<DashboardData>;
-  return Boolean(
-    candidate.stats &&
-      typeof candidate.stats.people === "number" &&
-      typeof candidate.stats.evidence === "number" &&
-      typeof candidate.stats.embedded === "number" &&
-      candidate.stats.departments &&
-      Array.isArray(candidate.latestSources) &&
-      Array.isArray(candidate.priorityRisks),
-  );
+function greeting(date: Date) {
+  const hour = date.getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }
 
-function severityTone(severity: string) {
-  if (severity === "critical" || severity === "high") return "text-[var(--critical)] bg-[#f3dfdb]";
-  if (severity === "medium") return "text-[var(--warning)] bg-[#f1e5d7]";
-  return "text-[var(--accent)] bg-[var(--accent-soft)]";
+function chatLink(empId: string, about?: string) {
+  const params = new URLSearchParams({ chat: empId });
+  if (about) params.set("about", about);
+  return `/people?${params.toString()}`;
+}
+
+/** Render "[2]" citations as small numbered pills. */
+function withCitations(text: string, onCite: (n: number) => void): ReactNode[] {
+  return text.split(/(\[\d+(?:\s*,\s*\d+)*\])/g).map((part, index) => {
+    const match = part.match(/^\[([\d,\s]+)\]$/);
+    if (!match) return <Fragment key={index}>{part}</Fragment>;
+    return (
+      <Fragment key={index}>
+        {match[1].split(",").map((value) => {
+          const n = Number(value.trim());
+          return (
+            <button key={n} type="button" onClick={() => onCite(n)} className="cite-pill" aria-label={`Source ${n}`}>
+              {n}
+            </button>
+          );
+        })}
+      </Fragment>
+    );
+  });
 }
 
 export default function Dashboard() {
-  const [data, setData] = useState(emptyData);
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<EvidenceHit[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [searching, setSearching] = useState(false);
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const now = useNow();
+
+  const [question, setQuestion] = useState("");
+  const [turns, setTurns] = useState<AskTurn[]>([]);
+  const [asking, setAsking] = useState(false);
+  const [openCite, setOpenCite] = useState<string | null>(null);
+  const threadEnd = useRef<HTMLDivElement>(null);
+
+  const [health, setHealth] = useState<{ areas: HealthArea[]; checkedAt: string; mode: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [openArea, setOpenArea] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/dashboard")
-      .then(async (response) => {
-        const result: unknown = await response.json();
-        if (!response.ok || !isDashboardData(result)) {
-          const message =
-            result &&
-            typeof result === "object" &&
-            "error" in result &&
-            typeof result.error === "string"
-              ? result.error
-              : "Dashboard data is unavailable.";
-          throw new Error(message);
-        }
-        setData(result);
-        setLoadError(null);
+    Promise.all([
+      fetch("/api/dashboard").then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? "The brief is unavailable.");
+        return body as Brief;
+      }),
+      fetch("/api/people").then((response) => response.json()).catch(() => ({ people: [] })),
+    ])
+      .then(([briefData, peopleData]) => {
+        setBrief(briefData);
+        setPeople(peopleData.people ?? []);
       })
-      .catch((error: unknown) => {
-        console.error("Dashboard request failed", error);
-        setLoadError(
-          error instanceof Error ? error.message : "Dashboard data is unavailable.",
-        );
-      })
-      .finally(() => setLoading(false));
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "The brief is unavailable."));
   }, []);
 
-  const coverage = useMemo(
-    () => (data.stats.evidence ? Math.round((data.stats.embedded / data.stats.evidence) * 100) : 0),
-    [data.stats],
-  );
-  const visibleSources = data.latestSources.slice(0, 3);
+  useEffect(() => {
+    if (turns.length) threadEnd.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [turns, asking]);
 
-  async function search(event: FormEvent) {
-    event.preventDefault();
-    if (!query.trim()) return;
-    setSearching(true);
+  const personByKey = useMemo(() => new Map(people.map((person) => [person.empId, person])), [people]);
+  const departments = useMemo(() => Object.keys(brief?.stats.departments ?? {}).sort(), [brief]);
+  const firstName = brief?.ceo?.name.split(" ")[0];
+
+  // Suggestions are built from what is on the brief today, not a fixed list.
+  const suggestions = useMemo(() => {
+    if (!brief) return [];
+    const fromConcerns = brief.concerns.slice(0, 2).map((finding) => `What's behind "${finding.title}"?`);
+    const fromAreas = departments.slice(0, 6).filter((area) => area !== "Leadership").slice(0, 2).map((area) => `How is ${area} doing?`);
+    return [...fromConcerns, ...fromAreas, "Who reports to whom?"];
+  }, [brief, departments]);
+
+  async function ask(text: string, event?: FormEvent) {
+    event?.preventDefault();
+    const current = text.trim();
+    if (!current || asking) return;
+    setQuestion("");
+    setAsking(true);
+    // Show the CEO's question immediately; the answer fills in when it arrives.
+    const history = turns
+      .filter((turn) => turn.answer !== null)
+      .slice(-4)
+      .map((turn) => ({ question: turn.question, answer: turn.answer as string }));
+    setTurns((existing) => [...existing, { question: current, answer: null, sources: [] }]);
+    const settle = (turn: Omit<AskTurn, "question">) =>
+      setTurns((existing) =>
+        existing.map((entry, index) =>
+          index === existing.length - 1 && entry.answer === null ? { ...entry, ...turn } : entry,
+        ),
+      );
     try {
-      const response = await fetch("/api/retrieve", {
+      const response = await fetch("/api/ask", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({
+          question: current,
+          history,
+        }),
       });
-      const result = await response.json();
-      setHits(result.evidence ?? []);
-    } catch (error) {
-      console.error("Evidence search failed", error);
+      const body = await response.json();
+      settle({
+        answer: body.answer ?? body.error ?? "No answer came back. Try again.",
+        sources: body.sources ?? [],
+        mode: body.mode,
+      });
+    } catch {
+      settle({ answer: "I couldn't reach the server. Try again in a moment.", sources: [] });
     } finally {
-      setSearching(false);
+      setAsking(false);
     }
   }
 
+  async function runHealthCheck() {
+    setChecking(true);
+    try {
+      const response = await fetch("/api/health-check", { method: "POST" });
+      const body = await response.json();
+      if (response.ok) setHealth(body);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  if (error) {
+    return (
+      <main className="mx-auto max-w-3xl px-5 py-16">
+        <p className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 text-sm text-[var(--muted)]">{error}</p>
+      </main>
+    );
+  }
+
+  const top = brief?.concerns.slice(0, 3) ?? [];
+  const summaryLine = brief
+    ? [
+        brief.concerns.length
+          ? `${brief.concerns.length} ${brief.concerns.length === 1 ? "thing needs" : "things need"} your attention`
+          : "nothing urgent on your desk",
+        brief.positives.length ? `${brief.positives.length} going well` : null,
+        brief.newSources.length ? `${brief.newSources.length} new ${brief.newSources.length === 1 ? "document" : "documents"} since the last pack` : null,
+      ].filter(Boolean).join(" · ")
+    : "Putting your brief together…";
+
   return (
-    <main className="mx-auto w-full max-w-[1380px] px-5 py-8 lg:px-10 lg:py-12">
+    <main className="mx-auto w-full max-w-[1280px] px-5 py-8 lg:px-10 lg:py-10">
+      {/* Greeting */}
       <section className="reveal">
-        {loadError && (
-          <div className="mb-5 rounded-xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--muted)]" role="status">
-            {loadError} Showing an empty view until the connection is available.
+        <p className="font-mono text-[11px] uppercase tracking-[.18em] text-[var(--muted)]">
+          {now ? now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }) : "\u00a0"}
+          {brief?.lastAnalysis && (
+            <> · brief updated {new Date(brief.lastAnalysis.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</>
+          )}
+        </p>
+        <h1 className="mt-2 font-serif text-4xl tracking-[-.04em] sm:text-5xl">
+          {now ? greeting(now) : "Hello"}{firstName ? `, ${firstName}` : ""}.
+        </h1>
+        <p className="mt-2 text-base text-[var(--muted)]">{summaryLine}</p>
+      </section>
+
+      {/* Stat row — full counts */}
+      <section className="reveal reveal-delay mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Link href="/risks" className="stat-card stat-critical">
+          <span className="stat-label">Open concerns</span>
+          <span className="stat-value">{brief ? brief.concerns.length : "—"}</span>
+          <span className="stat-note">see them all →</span>
+        </Link>
+        <Link href="/risks#going-well" className="stat-card stat-good">
+          <span className="stat-label">Going well</span>
+          <span className="stat-value">{brief ? brief.positives.length : "—"}</span>
+          <span className="stat-note">what&apos;s working →</span>
+        </Link>
+        <Link href="/people" className="stat-card stat-people">
+          <span className="stat-label">People</span>
+          <span className="stat-value">{brief ? brief.stats.people : "—"}</span>
+          <span className="stat-note">{departments.length} teams →</span>
+        </Link>
+        <Link href="/sources" className="stat-card stat-sources">
+          <span className="stat-label">Documents</span>
+          <span className="stat-value">{brief ? brief.stats.sources : "—"}</span>
+          <span className="stat-note">{brief?.newSources.length ? `${brief.newSources.length} new` : "all read"} →</span>
+        </Link>
+      </section>
+
+      {/* Ask */}
+      <section className="reveal reveal-delay mt-8 ask-panel">
+        <div className="flex items-center gap-2">
+          <span className="ask-spark" aria-hidden="true">✦</span>
+          <h2 className="text-sm font-semibold">Ask anything about Veloxa</h2>
+        </div>
+        {turns.length > 0 && (
+          <div className="ask-thread thin-scrollbar">
+            {turns.map((turn, index) => (
+              <div key={index} className="space-y-2">
+                <p className="chat-question">{turn.question}</p>
+                {turn.answer !== null && (
+                <div className="ask-answer">
+                  <p className="text-[15px] leading-7">
+                    {withCitations(turn.answer ?? "", (n) => setOpenCite(`${index}:${n}`))}
+                  </p>
+                  {turn.sources.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {turn.sources.map((source) => {
+                        const key = `${index}:${source.n}`;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setOpenCite(openCite === key ? null : key)}
+                            className={`source-chip ${openCite === key ? "is-open" : ""}`}
+                          >
+                            <span className="cite-pill">{source.n}</span>
+                            {source.source}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {turn.sources.map((source) =>
+                    openCite === `${index}:${source.n}` ? (
+                      <p key={source.n} className="mt-2 rounded-lg bg-[var(--surface)] p-3 text-sm leading-6 text-[var(--muted)]">
+                        {source.summary}
+                        <span className="mt-1 block font-mono text-[10px]">{source.source}{source.date ? ` · ${source.date}` : ""}</span>
+                      </p>
+                    ) : null,
+                  )}
+                </div>
+                )}
+              </div>
+            ))}
+            {asking && <p className="chat-thinking">Looking through everything…</p>}
+            <div ref={threadEnd} />
           </div>
         )}
-        {data.analysisReady === false && !loadError && (
-          <div className="mb-5 rounded-xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--muted)]" role="status">
-            Concern analysis is not available yet. The rest of the overview still works.
+        <form onSubmit={(event) => ask(question, event)} className="mt-3 flex gap-2">
+          <input
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="Ask about numbers, people, deadlines, anything…"
+            className="chat-input"
+          />
+          <button disabled={asking || !question.trim()} className="chat-send">Ask</button>
+        </form>
+        {turns.length === 0 && suggestions.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {suggestions.map((suggestion) => (
+              <button key={suggestion} type="button" onClick={() => ask(suggestion)} className="suggestion-chip">
+                {suggestion}
+              </button>
+            ))}
           </div>
         )}
-        <div>
-          <p className="mb-4 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--accent)]">
-            Executive overview · the latest material
-          </p>
-          <h1 className="max-w-3xl font-serif text-5xl leading-[.98] tracking-[-0.055em] text-[var(--ink)] sm:text-7xl">
-            See what matters.<br /><em className="text-[var(--accent)]">Know why.</em>
-          </h1>
-          <p className="mt-6 max-w-4xl text-[15px] leading-7 text-[var(--muted)]">
-            A quiet layer between Veloxa&apos;s material and the decisions in front of you.
-            Start with the signal, then open the trail.
-          </p>
+      </section>
+
+      {/* Attention map — concerns only, top 3 */}
+      <section className="reveal reveal-delay-2 mt-12">
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <p className="section-eyebrow text-[var(--critical)]">Needs your attention</p>
+            <h2 className="font-serif text-2xl tracking-[-.03em]">What&apos;s going wrong</h2>
+          </div>
+          {brief && brief.concerns.length > 3 && (
+            <Link href="/risks" className="text-xs font-semibold text-[var(--accent)] hover:underline">
+              +{brief.concerns.length - 3} more →
+            </Link>
+          )}
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {brief && top.length === 0 && (
+            <p className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 text-sm text-[var(--muted)] lg:col-span-3">
+              Nothing needs you right now. Run the health check below for a full picture.
+            </p>
+          )}
+          {top.map((finding, index) => {
+            const owner = finding.owner_employee_key ? personByKey.get(finding.owner_employee_key) : undefined;
+            return (
+              <article key={finding.id} className={`concern-card sev-${finding.severity}`}>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="concern-rank">{String(index + 1).padStart(2, "0")}</span>
+                  <SeverityPill severity={finding.severity} />
+                  {finding.area && <AreaPill area={finding.area} all={departments} />}
+                  <ConfidencePill confidence={finding.confidence} />
+                </div>
+                <Link href={`/risks/${encodeURIComponent(finding.risk_key)}`} className="mt-3 block">
+                  <h3 className="text-[17px] font-semibold leading-snug hover:underline">{finding.title}</h3>
+                </Link>
+                {finding.inference && <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{finding.inference}</p>}
+                {finding.recommended_action && (
+                  <p className="next-step mt-3"><span>Next</span>{finding.recommended_action}</p>
+                )}
+                <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
+                  <Link href={`/risks/${encodeURIComponent(finding.risk_key)}`} className="ghost-button">
+                    Evidence{finding.evidence_count ? ` · ${finding.evidence_count}` : ""}
+                  </Link>
+                  {owner && (
+                    <Link href={chatLink(owner.empId, finding.title)} className="talk-button">
+                      Talk to {owner.name.split(" ")[0]} →
+                    </Link>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
 
-      <section className="reveal reveal-delay mt-12 grid gap-3 sm:grid-cols-3">
-        {[
-          ["People in view", data.stats.people, "active profiles"],
-          ["Sources loaded", data.stats.evidence, `${coverage}% indexed for search`],
-          ["Open concerns", data.priorityRisks.length, "worth your attention"],
-        ].map(([label, value, note]) => (
-          <Link
-            key={label}
-            href={label === "People in view" ? "/people" : label === "Open concerns" ? "/risks" : "/sources"}
-            className="group rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 transition hover:-translate-y-0.5 hover:border-[var(--accent)] hover:shadow-[0_10px_24px_rgba(47,55,48,.08)]"
-          >
-            <p className="text-sm text-[var(--muted)]">{label}</p>
-            <p className="mt-3 font-serif text-5xl tracking-[-.05em]">{loading ? "—" : value}</p>
-            <p className="mt-2 text-xs font-semibold uppercase tracking-[.12em] text-[var(--accent)]">{note}</p>
-            <span className="mt-4 block text-xs text-[var(--muted)] transition group-hover:text-[var(--accent)]">Open detail →</span>
-          </Link>
-        ))}
-      </section>
+      {/* Going well */}
+      {brief && brief.positives.length > 0 && (
+        <section className="reveal reveal-delay-2 mt-12">
+          <p className="section-eyebrow text-[var(--good)]">Going well</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {brief.positives.map((finding) => {
+              const owner = finding.owner_employee_key ? personByKey.get(finding.owner_employee_key) : undefined;
+              return (
+                <article key={finding.id} className="positive-card">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="pill-good">✓ working</span>
+                    {finding.area && <AreaPill area={finding.area} all={departments} />}
+                  </div>
+                  <Link href={`/risks/${encodeURIComponent(finding.risk_key)}`}>
+                    <h3 className="mt-2 font-semibold hover:underline">{finding.title}</h3>
+                  </Link>
+                  {finding.inference && <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{finding.inference}</p>}
+                  {owner && (
+                    <Link href={chatLink(owner.empId, finding.title)} className="mt-2 inline-block text-xs font-semibold text-[var(--good)] hover:underline">
+                      Thank {owner.name.split(" ")[0]} →
+                    </Link>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
-      <section className="reveal reveal-delay-2 mt-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 sm:p-7">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      {/* Health check */}
+      <section className="reveal reveal-delay-2 mt-12 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Search</p>
-            <h2 className="mt-2 font-serif text-3xl tracking-[-.03em]">Ask what the material supports</h2>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">
-              Search what we have before opening a source or making a decision.
+            <p className="section-eyebrow text-[var(--accent)]">Company health check</p>
+            <p className="text-sm text-[var(--muted)]">
+              {health
+                ? `Checked ${new Date(health.checkedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}${health.mode === "stored" ? " · from the last brief (live check unavailable)" : ""}`
+                : "A team-by-team status, on demand."}
             </p>
           </div>
-          <form onSubmit={search} className="flex w-full max-w-xl items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-2">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the material…" className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm text-[var(--ink)] outline-none placeholder:text-[var(--muted)]" />
-            <button disabled={searching} className="rounded-lg bg-[var(--ink)] px-4 py-2.5 text-xs text-[var(--paper)] transition hover:bg-[var(--accent)] disabled:opacity-50">
-              {searching ? "Looking…" : "Search"}
-            </button>
-          </form>
+          <button onClick={runHealthCheck} disabled={checking} className="talk-button">
+            {checking ? "Checking every team…" : health ? "Run again" : "Run health check"}
+          </button>
         </div>
-        {hits.length > 0 && (
-          <div className="mt-5 border-t border-[var(--line)] pt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[.16em] text-[var(--muted)]">Evidence trail</p>
-            <div className="grid gap-2 lg:grid-cols-3">
-              {hits.slice(0, 3).map((hit) => (
-                <article key={hit.evidence_id} className="rounded-xl bg-[var(--surface)] p-3">
-                  <p className="text-sm leading-6 text-[var(--ink)]">{hit.summary}</p>
-                  <p className="mt-2 font-mono text-[11px] text-[var(--muted)]">
-                    {hit.source_title}
-                    {hit.locator ? ` · ${hit.locator}` : ""}
-                    {hit.dateLabel ? ` · ${hit.dateLabel}` : ""}
-                  </p>
-                </article>
-              ))}
-            </div>
+        {health && (
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {health.areas.map((area) => (
+              <div key={area.area} className={`health-tile status-${area.status}`}>
+                <button type="button" className="w-full text-left" onClick={() => setOpenArea(openArea === area.area ? null : area.area)}>
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-sm font-semibold">
+                      <StatusDot status={area.status} />
+                      {area.area}
+                    </span>
+                    <span className="status-label">{area.status === "act" ? "act now" : area.status}</span>
+                  </span>
+                  <span className="mt-1 block text-sm leading-6">{area.headline}</span>
+                </button>
+                {openArea === area.area && (
+                  <div className="mt-2 border-t border-[var(--line)] pt-2 text-sm leading-6 text-[var(--muted)]">
+                    <p>{area.why}</p>
+                    {area.evidence.map((item) => (
+                      <p key={item.summary} className="mt-2 text-xs">
+                        “{item.summary}” <span className="font-mono text-[10px]">— {item.source}{item.tier === "secondary" ? " (call)" : ""}</span>
+                      </p>
+                    ))}
+                    {area.findings.map((finding) => (
+                      <Link key={finding.key} href={`/risks/${encodeURIComponent(finding.key)}`} className="mt-1 block text-xs font-semibold text-[var(--accent)] hover:underline">
+                        {finding.polarity === "positive" ? "✓" : "!"} {finding.title}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                {area.contact && (
+                  <Link href={chatLink(area.contact.empId, `how ${area.area} is doing`)} className="mt-2 inline-block text-xs font-semibold text-[var(--accent)] hover:underline">
+                    Check in with {area.contact.name.split(" ")[0]} →
+                  </Link>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </section>
 
-      <section className="reveal reveal-delay-2 mt-4 grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 sm:p-7">
-          <div className="flex w-full items-start justify-between text-left">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Attention map</p>
-              <h2 className="mt-2 font-serif text-3xl tracking-[-.03em]">What needs a closer look</h2>
-            </div>
-            <span className="pill rounded-full px-3 py-1.5 text-xs">{data.priorityRisks.length} signals</span>
-          </div>
-          <div className="mt-6 space-y-2">
-            {data.priorityRisks.length === 0 && <p className="rounded-xl bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">No open concerns have been loaded yet.</p>}
-            {data.priorityRisks.map((risk, index) => (
-              <div key={risk.id} className="rounded-xl border border-transparent bg-[var(--surface)] p-4 transition hover:border-[var(--line)]">
-                <div className="flex gap-4">
-                  <span className="font-serif text-2xl text-[var(--muted)]">0{index + 1}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex flex-wrap items-center gap-2">
-                      <strong className="text-sm font-medium">{risk.title}</strong>
-                      <span className={`rounded-full px-2 py-1 text-[9px] uppercase tracking-[.12em] ${severityTone(risk.severity)}`}>{risk.severity}</span>
-                    </span>
-                  </span>
-                </div>
-                <Link
-                  href={`/risks/${encodeURIComponent(risk.risk_key)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 ml-10 inline-block text-xs font-semibold text-[var(--accent)] hover:underline"
-                >
-                  Why this matters →
-                </Link>
-              </div>
+      {/* New today + teams */}
+      <section className="reveal reveal-delay-2 mt-12 mb-8 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
+          <p className="section-eyebrow text-[var(--accent)]">New in the latest pack{brief?.latestDay ? ` · ${brief.latestDay}` : ""}</p>
+          <ul className="mt-3 divide-y divide-[var(--line)]">
+            {(brief?.newSources ?? []).slice(0, 6).map((source) => (
+              <li key={source.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <span className="truncate">{source.title}</span>
+                <span className="type-pill">{source.source_type}</span>
+              </li>
             ))}
-          </div>
+            {brief && brief.newSources.length === 0 && <li className="py-2 text-sm text-[var(--muted)]">Nothing new.</li>}
+          </ul>
         </div>
-
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 sm:p-7">
-          <div className="flex w-full items-start justify-between text-left">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Latest sources</p>
-              <h2 className="mt-2 font-serif text-3xl tracking-[-.03em]">What we know now</h2>
-            </div>
-            <span className="pill rounded-full px-3 py-1.5 text-xs">{visibleSources.length} sources</span>
-          </div>
-          <div className="mt-6 space-y-2">
-            {visibleSources.map((source) => (
-              <div key={source.id} className="rounded-xl bg-[var(--surface)] p-4">
-                <p className="text-sm font-semibold text-[var(--ink)]">{source.title}</p>
-                <p className="mt-2 text-xs text-[var(--muted)]">{source.source_type} · released {source.release_day}</p>
-              </div>
-            ))}
-            {data.latestSources.length === 0 && <p className="rounded-xl bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">No sources have arrived yet.</p>}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5 sm:p-7 lg:col-span-2">
-          <div className="flex w-full items-start justify-between text-left">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--accent)]">Company shape</p>
-              <h2 className="mt-2 font-serif text-3xl tracking-[-.03em]">Where the people sit</h2>
-            </div>
-            <span className="pill rounded-full px-3 py-1.5 text-xs">{Object.keys(data.stats.departments).length} teams</span>
-          </div>
-          <div className="mt-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {Object.entries(data.stats.departments).map(([name, count]) => (
-              <Link key={name} href="/people" className="rounded-xl bg-[var(--surface)] p-4 transition hover:bg-[var(--accent-soft)]">
-                <p className="text-sm font-semibold">{name}</p>
-                <p className="mt-3 font-serif text-3xl">{count}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">{count === 1 ? "person" : "people"} in the directory</p>
-                <p className="mt-3 text-xs font-semibold text-[var(--accent)]">Open people directory →</p>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
+          <p className="section-eyebrow text-[var(--accent)]">Your teams</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {departments.map((name) => (
+              <Link
+                key={name}
+                href={`/people?department=${encodeURIComponent(name)}`}
+                className="team-chip"
+                style={{ borderColor: areaColor(name, departments) }}
+              >
+                <span className="team-dot" style={{ background: areaColor(name, departments) }} />
+                {name}
+                <span className="text-[var(--muted)]">{brief?.stats.departments[name]}</span>
               </Link>
             ))}
           </div>

@@ -1,26 +1,42 @@
+import { selectRiskItems } from "@/lib/data/fallback";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { dedupeAndRankRisks } from "@/lib/analysis/risk";
 import { friendlySourceTitle, humanizeConcernText } from "@/lib/evidence/snippet";
 
+type RiskRow = {
+  id: string;
+  risk_key: string;
+  title: string;
+  description: string;
+  observed?: string | null;
+  inference?: string | null;
+  recommended_action?: string | null;
+  polarity?: string | null;
+  severity: string;
+  likelihood: string | null;
+  confidence: string | null;
+  evidence_count?: number | null;
+  origin?: string | null;
+  last_reviewed_at: string | null;
+};
+
+const text = (value?: string | null) => (value ? humanizeConcernText(value) : null);
+
+/**
+ * The CEO's morning brief. Everything is read from the database: the CEO is
+ * whoever sits at the top of the HR master's reporting line.
+ */
 export async function GET() {
   try {
     const supabase = createServerSupabaseClient();
     const asOf = new Date().toISOString();
-    const riskQuery = supabase
-      .from("risk_items")
-      .select(
-        "id, risk_key, title, description, severity, likelihood, status, confidence, origin, last_reviewed_at",
-      )
-      .in("status", ["open", "watch"])
-      .limit(30);
-    const [people, evidence, documents, risks] = await Promise.all([
+    const [people, evidence, documents, risks, lastRun] = await Promise.all([
       supabase
         .from("employee_profiles")
-        .select("employee_key, department")
-        .eq("is_active", true),
+        .select("employee_key, display_name, role_title, department, is_active, profile"),
       supabase
         .from("evidence_items")
-        .select("id, embedding", { count: "exact", head: false })
+        .select("id", { count: "exact", head: true })
         .eq("is_sensitive", false)
         .lte("available_at", asOf),
       supabase
@@ -28,61 +44,90 @@ export async function GET() {
         .select("id, title, source_type, release_day, available_at")
         .lte("available_at", asOf)
         .order("available_at", { ascending: false })
-        .limit(4),
-      riskQuery,
+        .limit(40),
+      selectRiskItems(
+        "id, risk_key, title, description, observed, inference, recommended_action, polarity, area, owner_employee_key, severity, likelihood, confidence, evidence_count, origin, last_reviewed_at",
+        (select) => supabase.from("risk_items").select(select).in("status", ["open", "watch"]).limit(60),
+      ),
+      supabase
+        .from("analysis_runs")
+        .select("completed_at, model_version, status")
+        .eq("status", "completed")
+        .order("completed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
-
     for (const result of [people, evidence, documents]) {
       if (result.error) throw new Error(result.error.message);
     }
-    const analysisReady = !risks.error || risks.error.code !== "42703";
-    if (risks.error && analysisReady) throw new Error(risks.error.message);
-    let currentRisks = (risks.data ?? []).map((risk) => ({
-      ...risk,
-      title: humanizeConcernText(risk.title),
-      description: humanizeConcernText(risk.description),
-    }));
-    if (analysisReady && currentRisks.length > 0) {
+    if (risks.error) throw new Error(risks.error.message);
+
+    // Only findings whose evidence is released as of now.
+    let rows = (risks.data ?? []) as unknown as RiskRow[];
+    if (rows.length > 0) {
       const links = await supabase
         .from("risk_evidence")
         .select("risk_id, evidence_items!inner(available_at)")
-        .in("risk_id", currentRisks.map((risk) => risk.id))
+        .in("risk_id", rows.map((risk) => risk.id))
         .lte("evidence_items.available_at", asOf);
       if (links.error) throw new Error(links.error.message);
-      const currentRiskIds = new Set((links.data ?? []).map((link) => link.risk_id));
-      currentRisks = currentRisks.filter((risk) => currentRiskIds.has(risk.id));
+      const current = new Set((links.data ?? []).map((link) => link.risk_id));
+      rows = rows.filter((risk) => current.has(risk.id));
     }
-
-    const departmentCounts = (people.data ?? []).reduce<Record<string, number>>(
-      (counts, person) => {
-        counts[person.department ?? "Unassigned"] =
-          (counts[person.department ?? "Unassigned"] ?? 0) + 1;
-        return counts;
-      },
-      {},
+    const findings = dedupeAndRankRisks(
+      rows.map((risk) => ({
+        ...risk,
+        title: humanizeConcernText(risk.title),
+        description: humanizeConcernText(risk.description),
+        observed: text(risk.observed),
+        inference: text(risk.inference),
+        recommended_action: text(risk.recommended_action),
+        polarity: risk.polarity ?? "concern",
+      })),
     );
 
+    const activePeople = (people.data ?? []).filter((person) => person.is_active);
+    // The CEO is the person at the top of the reporting tree: no manager of
+    // their own, and at least one person reporting to them. Without reporting
+    // data (directory not yet synced) there is no CEO to greet.
+    const managerOf = (person: (typeof activePeople)[number]) =>
+      (person.profile as { managerKey?: string | null } | null)?.managerKey ?? null;
+    const ceo =
+      activePeople.find(
+        (person) =>
+          !managerOf(person) &&
+          activePeople.some((other) => managerOf(other) === person.employee_key),
+      ) ?? null;
+    const departments = activePeople.reduce<Record<string, number>>((counts, person) => {
+      const name = person.department ?? "Unassigned";
+      counts[name] = (counts[name] ?? 0) + 1;
+      return counts;
+    }, {});
+
+    const sources = (documents.data ?? []).map((document) => ({
+      ...document,
+      title: friendlySourceTitle(document.title),
+    }));
+    const latestDay = sources[0]?.release_day ?? null;
+
     return Response.json({
+      ceo: ceo ? { name: ceo.display_name, title: ceo.role_title } : null,
       stats: {
-        people: people.data?.length ?? 0,
-        evidence: evidence.data?.length ?? 0,
-        embedded: (evidence.data ?? []).filter((item) => item.embedding).length,
-        departments: departmentCounts,
+        people: activePeople.length,
+        evidence: evidence.count ?? 0,
+        sources: sources.length,
+        departments,
       },
-      latestSources: (documents.data ?? []).map((document) => ({
-        ...document,
-        title: friendlySourceTitle(document.title),
-      })),
-      priorityRisks: analysisReady
-        ? dedupeAndRankRisks(currentRisks).slice(0, 3)
-        : [],
-      analysisReady,
+      concerns: findings.filter((finding) => finding.polarity !== "positive"),
+      positives: findings.filter((finding) => finding.polarity === "positive"),
+      latestDay,
+      newSources: sources.filter((source) => source.release_day === latestDay),
+      lastAnalysis: lastRun.data
+        ? { at: lastRun.data.completed_at, model: lastRun.data.model_version }
+        : null,
     });
   } catch (error) {
     console.error("Dashboard data query failed", error);
-    return Response.json(
-      { error: "Unable to load dashboard data." },
-      { status: 502 },
-    );
+    return Response.json({ error: "Unable to load the morning brief." }, { status: 502 });
   }
 }
