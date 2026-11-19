@@ -585,13 +585,25 @@ input, button { font-size: 0.9375rem; }
 :root[data-theme="dark"] .cite-pill { color: #07110c; }
 :root[data-theme="dark"] .status-tag-active { background: var(--good-soft); color: var(--good); }
 
-/* Logo */
-.veloxa-logo-frame { stroke: var(--accent); stroke-width: 1.6; fill: var(--paper); }
-.veloxa-logo-v { stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.veloxa-logo.is-animated .veloxa-logo-v { stroke-dasharray: 40; stroke-dashoffset: 40; animation: loader-draw-v 1.6s ease-in-out infinite; }
-@keyframes loader-draw-v { 0% { stroke-dashoffset: 40; } 45%, 60% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -40; } }
-.group:hover .veloxa-logo { transform: rotate(-6deg); }
-.veloxa-logo { transition: transform 180ms ease; flex-shrink: 0; }
+/* Logo: two folded ribbons, a cut where they cross, a saffron spark. */
+.veloxa-logo-left { fill: color-mix(in srgb, var(--accent) 55%, var(--paper)); }
+.veloxa-logo-right { fill: var(--accent); }
+.veloxa-logo-cut { stroke: var(--paper); stroke-width: 1.1; stroke-linecap: round; }
+.veloxa-logo-spark { fill: var(--brand-2); }
+.veloxa-logo { transition: transform 180ms ease; flex-shrink: 0; overflow: visible; }
+.group:hover .veloxa-logo { transform: translateY(-1px) rotate(-4deg); }
+/* Loader: the arms slide in and meet, then the spark appears. */
+.veloxa-logo.is-animated .veloxa-logo-left { animation: logo-left 1.8s cubic-bezier(.5,0,.2,1) infinite; }
+.veloxa-logo.is-animated .veloxa-logo-right { animation: logo-right 1.8s cubic-bezier(.5,0,.2,1) infinite; }
+.veloxa-logo.is-animated .veloxa-logo-cut { animation: logo-fade 1.8s ease infinite; }
+.veloxa-logo.is-animated .veloxa-logo-spark { transform-origin: 26.6px 5px; animation: logo-spark 1.8s ease infinite; }
+@keyframes logo-left { 0% { transform: translate(-6px, -6px); opacity: 0; } 35%, 80% { transform: none; opacity: 1; } 100% { opacity: 0; } }
+@keyframes logo-right { 0%, 10% { transform: translate(6px, -6px); opacity: 0; } 45%, 80% { transform: none; opacity: 1; } 100% { opacity: 0; } }
+@keyframes logo-fade { 0%, 40% { opacity: 0; } 55%, 80% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes logo-spark { 0%, 50% { transform: scale(0) rotate(0deg); opacity: 0; } 65% { transform: scale(1.3) rotate(45deg); opacity: 1; } 80% { transform: scale(1) rotate(90deg); opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .veloxa-logo.is-animated * { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
 
 /* Nav */
 .nav-shell { background: color-mix(in srgb, var(--paper) 94%, transparent); box-shadow: 0 8px 24px var(--shadow); }
@@ -683,8 +695,10 @@ input, button { font-size: 0.9375rem; }
   padding: 18mm 16mm; border-radius: 6px; box-shadow: 0 10px 40px var(--shadow);
   font-size: 10.5pt; line-height: 1.55;
 }
-.report-page .veloxa-logo-frame { fill: #ffffff; stroke: #2f5f54; }
-.report-page .veloxa-logo-v { stroke: #2f5f54; }
+.report-page .veloxa-logo-left { fill: #8fb3a7 !important; }
+.report-page .veloxa-logo-right { fill: #2f5f54 !important; }
+.report-page .veloxa-logo-cut { stroke: #ffffff !important; }
+.report-page .veloxa-logo-spark { fill: #c46a2b !important; }
 .report-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; border-bottom: 2px solid #17201c; padding-bottom: 10px; }
 .report-company { font-family: Georgia, serif; font-size: 20pt; font-weight: 600; letter-spacing: -.02em; line-height: 1; }
 .report-kicker { margin-top: 4px; color: #2f5f54; font-size: 8pt; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }

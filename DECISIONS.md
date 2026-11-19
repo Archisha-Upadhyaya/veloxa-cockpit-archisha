@@ -477,8 +477,9 @@ history silently.
 -   **Decision:** Light/dark/system theme (no flash, remembered per
     browser) with brighter status colours in dark mode; a saffron second
     accent for urgency and time travel; a bottom tab bar on phones; a
-    branded loader; the Veloxa mark built on Tabler's MIT "letter-v" icon
-    (`THIRD_PARTY_NOTICES.md`); chat as a drawer with "open full page"
+    branded loader; the Veloxa mark (revised the same day at the CEO's
+    request to an original free-standing V of two folded ribbons with a
+    saffron spark, replacing an interim boxed V based on Tabler's MIT icon); chat as a drawer with "open full page"
     (`/chat/[id]`, same conversation); an A4 printable brief at `/report`.
 
 ## D-037 --- Names follow the directory; syncs re-run the analysis (19 Nov 2026)

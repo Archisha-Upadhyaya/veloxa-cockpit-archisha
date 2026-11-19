@@ -349,8 +349,11 @@ view over a refusal; pages showed empty cards before data; the dev page on
 "what changed" by document dates, dark mode, mobile nav, full-page chat,
 PDF brief, correct name spellings, automatic re-analysis, a real logo.
 
-- **Logo:** searched for licensed V marks; chose Tabler's "letter-v" (MIT,
-  verified licence file) and recorded it in `THIRD_PARTY_NOTICES.md`.
+- **Logo:** first used Tabler's MIT "letter-v" in a box; the CEO asked for a
+  free-standing V like a Creative Fabrica template instead. That template is a
+  paid asset (and the page refused automated access), so it was not copied;
+  an original two-ribbon V was drawn in that style and the Tabler notice
+  removed.
 - **Checked in headless Chrome:** light, dark, 390 px phone (no sideways
   scroll, tab bar visible), 16 Nov view (10 documents, 1 concern, Siddharth
   exited), chat page, A4 report with all sections.
