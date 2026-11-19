@@ -38,9 +38,10 @@ sentence a person can read, never a CSV row, a table, or a raw document chunk.
 - **Ingestion** — Day-wise release packs are scanned from `transcripts/` and
   `data_room/`, hashed, and re-ingested only when changed. Earlier release days
   are unavailable to later as-of queries.
-- **Risk analysis** — 5–10 grounded concerns at most, not a forced three. When
-  the model is unavailable, deterministic evidence-derived concerns keep the
-  cockpit usable.
+- **Risk analysis** — each data-room folder is analysed separately, then
+  consolidated into distinct concerns, each citing its records and saying why
+  each one counts. When no model is available, the last stored brief is kept;
+  nothing is invented in its place.
 - **Two database paths, one schema** — hosted Supabase PostgreSQL and a
   self-contained Docker stack apply the same migrations and use the same API
   client. No feature depends on a hosted-only service.
@@ -50,53 +51,84 @@ ingestion and read time. They are never embedded, retrieved, sent to a model,
 or rendered in the UI. Aggregate payroll totals remain available for financial
 analysis.
 
-## Quick start with Docker
+## One-command local setup
 
-Prerequisite: Docker with Docker Compose support.
+Everything (database, API, app, data) runs in Docker. No Supabase account is
+needed, and nothing touches a hosted database.
+
+**You need:** Docker with Compose, and this repository including the
+`Veloxa_Hackathon_Release_Packs/` folder.
 
 ```bash
 docker compose up --build
 ```
 
-Open **http://localhost:3000**.
+Then open **http://localhost:3000** and sign in:
 
-The stack starts PostgreSQL with pgvector, applies every migration, removes any
-legacy hand-written seed rows, starts the Next.js app, then runs the bootstrap job:
-`sync → embed → analyze`. Bootstrap is safe to repeat: ingestion skips unchanged
-files, embeddings only fill gaps, and analysis updates concerns by fingerprint.
+| Username | Password |
+|---|---|
+| `ceo` | `veloxa-brief` |
 
-Data lives in the named volume `veloxa-postgres` and survives rebuilds:
+These are demo credentials. Change them (and the session secret) with
+`VELOXA_USERNAME`, `VELOXA_PASSWORD` and `VELOXA_SESSION_SECRET` in
+`.env.local` before deploying anywhere public. Every page and API requires
+sign-in; signed-out visits go to `/login` and return to the page afterwards.
+
+That one command:
+
+1. starts PostgreSQL with pgvector and applies every migration in
+   `supabase/migrations/`;
+2. starts PostgREST behind a small gateway, so the app talks to the local
+   database exactly as it would to Supabase;
+3. builds and starts the app;
+4. runs a bootstrap job that ingests the release packs (Day 1–4) and the
+   people directory; the app then embeds the documents and builds the brief
+   in the background (a few minutes on the free Gemini tier).
+
+It is safe to run again: unchanged files are skipped and existing data is
+kept.
+
+### Optional: AI features
+
+Create `.env.local` with a Gemini key (copy `.env.example`) before starting:
 
 ```bash
-docker compose down      # stop, keep data
-docker compose down -v   # stop and delete the local database
+GEMINI_API_KEY=your-key
+```
+
+| | With a key | Without a key |
+|---|---|---|
+| Documents, people, reporting line, time machine, PDF brief | ✓ | ✓ |
+| Concerns, health check, retention watch | ✓ | – (nothing is invented in their place) |
+| Ask and employee chat | full answers | stored extracts / record-based replies |
+| Search | semantic | keyword |
+
+Docker always uses its own local database: the Supabase URL and key in
+`.env.local` are overridden inside the stack, so a hosted project is never
+touched.
+
+### Stop, reset, rebuild
+
+```bash
+docker compose down        # stop; data is kept in the veloxa-postgres volume
+docker compose down -v     # stop and delete the local database
+docker compose up --build  # rebuild after pulling new code
 ```
 
 ### Ports already in use?
 
-The host ports are configurable:
-
 ```bash
-VELOXA_APP_PORT=3100 \
-VELOXA_API_PORT=3101 \
-VELOXA_DB_PORT=55432 \
-docker compose up --build
+VELOXA_APP_PORT=3100 VELOXA_API_PORT=3101 VELOXA_DB_PORT=55432 docker compose up --build
 ```
 
-Then open **http://localhost:3100**. The app container still reaches PostgREST
-through the internal `gateway` service; only the host mappings change.
+Then open **http://localhost:3100**. Defaults are 3000 (app), 3001 (API
+gateway) and 5432 (PostgreSQL).
 
-### Without an AI key
+### Developing locally instead
 
-The stack runs without `GEMINI_API_KEY`. In that mode it uses:
-
-- deterministic local embeddings for retrieval,
-- a deterministic chat fallback for employee agents,
-- deterministic evidence-derived concerns when analysis is unavailable.
-
-With `GEMINI_API_KEY` set in `.env.local`, Gemini handles chat, risk analysis,
-and embeddings (1536 dimensions). If Gemini is rate-limited, each path falls
-back instead of failing the request.
+For live reload against a hosted Supabase project, use `pnpm install` and
+`pnpm dev` with `.env.local` filled in (see below). Run one dev server per
+project folder.
 
 ## Hosted Supabase
 

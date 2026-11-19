@@ -134,6 +134,22 @@ export default function AppNav() {
           <div className="flex items-center gap-2">
             <TimeMachine />
             <ThemeToggle />
+            <button
+              type="button"
+              className="close-button"
+              title="Sign out"
+              aria-label="Sign out"
+              onClick={async () => {
+                await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+                // A full load (not client navigation) clears every in-memory view.
+                // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                window.location.href = "/login";
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2M9 12h12l-3 -3M18 15l3 -3" />
+              </svg>
+            </button>
           </div>
         </div>
 

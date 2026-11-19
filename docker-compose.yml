@@ -15,6 +15,8 @@
 #   VELOXA_APP_PORT=3100 VELOXA_API_PORT=3101 VELOXA_DB_PORT=55432 docker compose up --build
 
 x-local-supabase-key: &local_supabase_key "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoidmVsb3hhIiwiaXNzIjoidmVsb3hhLWxvY2FsIn0.dBCaZ-c4Js5QL-_12oMrRqBu6MqaxD8NkFUYvWv-7mc"
+# Signs sign-in sessions and lets the bootstrap job call the API. Local only.
+x-session-secret: &session_secret "veloxa-local-session-secret-change-me"
 x-local-jwt-secret: &local_jwt_secret "veloxa-local-jwt-secret-at-least-32-chars"
 
 services:
@@ -111,6 +113,7 @@ services:
       NEXT_PUBLIC_SUPABASE_URL: http://localhost:${VELOXA_API_PORT:-3001}
       SUPABASE_SECRET_KEY: *local_supabase_key
       VELOXA_DATA_ROOM_PATH: /app/Veloxa_Hackathon_Release_Packs
+      VELOXA_SESSION_SECRET: *session_secret
     volumes:
       - ./Veloxa_Hackathon_Release_Packs:/app/Veloxa_Hackathon_Release_Packs:ro
     ports:
@@ -123,6 +126,7 @@ services:
         condition: service_started
     environment:
       APP_URL: http://app:3000
+      VELOXA_SESSION_SECRET: *session_secret
     volumes:
       - ./scripts/docker-bootstrap.sh:/docker-bootstrap.sh:ro
     entrypoint: ["/bin/sh", "/docker-bootstrap.sh"]

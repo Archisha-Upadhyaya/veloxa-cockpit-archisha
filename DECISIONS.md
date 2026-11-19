@@ -488,3 +488,14 @@ history silently.
     corrected to the directory ("Pria" → Priya, "Snehal" → Sneha, "Ayesha"
     → Aisha), and count towards persona presence. A sync that changes files
     embeds them and re-runs the analysis in the background (`after()`).
+
+## D-038 --- Simple sign-in for the whole site (19 Nov 2026)
+
+-   **Decision:** One username and password from the environment (demo
+    defaults in the README), a signed HTTP-only session cookie (HMAC,
+    12 hours), and a single `src/proxy.ts` gate: signed-out page visits go to
+    `/login?next=…`, API calls get 401. Trusted jobs (the Docker bootstrap)
+    send `Authorization: Bearer <VELOXA_SESSION_SECRET>`.
+-   **Alternatives:** Supabase Auth; a user table. Not needed for a single
+    CEO user.
+-   **Revisit if:** More than one person needs access, or roles differ.

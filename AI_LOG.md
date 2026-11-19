@@ -367,6 +367,21 @@ PDF brief, correct name spellings, automatic re-analysis, a real logo.
 
 ---
 
+## AI-023 — Sign-in, one-command Docker setup
+
+**Work item (19 Nov):** A simple login for the whole site; a README section
+for one-command local setup; a final Docker build.
+
+- **Sign-in:** proxy gate, signed cookie, login page, sign-out in the nav.
+  Checked: signed-out pages redirect with `next`, APIs return 401, wrong
+  password rejected, forged cookie rejected, correct sign-in works.
+- **Docker bootstrap:** rewritten to only run the sync (the app embeds and
+  analyses in the background), and to authenticate with the shared secret.
+- **Dev server:** the dev CSS was served from a stale on-disk cache three
+  times; clearing `.next/dev` fixed it. Production builds are unaffected.
+
+---
+
 ## Ongoing AI-assisted workflow
 
 For subsequent work, entries will be added when AI materially contributes to analysis, code, tests or documentation. Each entry should record:
