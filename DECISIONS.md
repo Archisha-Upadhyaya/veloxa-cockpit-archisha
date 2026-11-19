@@ -1,7 +1,7 @@
 # Decision Log --- Veloxa CXO Cockpit
 
 **Status:** Updated through Day 3\
-**Date:** 16 November 2026, last updated 18 November 2026
+**Date:** 16 November 2026, last updated 19 November 2026
 
 Decisions record alternatives, rationale, trade-offs and reconsideration
 triggers. Add a new dated entry when a decision changes; do not rewrite
@@ -407,3 +407,44 @@ history silently.
     stack.
 -   **Rationale:** A stale `next start` served HTML pointing at deleted CSS
     chunks.
+
+## D-031 --- CEO-reported status, kept apart from HR data (19 Nov 2026)
+
+-   **Decision:** The CEO can record a status the HR export does not show
+    yet (resigned, leaving, on leave) with an expected last day. It is
+    stored as `profile.reported`, labelled "reported by the CEO", kept
+    through HR re-syncs, and passed to analysis, Ask and chat as context,
+    never cited as evidence.
+-   **Rationale:** T6d: decisions are needed before the HR record changes.
+-   **Revisit if:** The HR export starts carrying the same status; clear the
+    report then.
+
+## D-032 --- Decline individual quit-risk ranking and message reading (19 Nov 2026)
+
+-   **Decision:** Ask and chat refuse to rank named employees by likelihood
+    to quit or to read private messages, and offer team-level retention
+    signals instead.
+-   **Rationale:** T6c. It is employee monitoring, a manager's approval is
+    not the employees' consent, and no such data exists in the packs.
+-   **Revisit if:** A lawful, consented, aggregate engagement source is
+    provided; even then, results stay at team level.
+-   **Revised 19 Nov 2026 (CEO feedback):** Private messages stay out.
+    Instead of refusing outright, an on-demand **retention watch** on the
+    People page lists who the CEO may want to check in with, using only work
+    records (on-call load, ownership of open work, explicit statements in
+    email or calls, reported status), with the reasons and their sources.
+    No scores or probabilities. "Who is likely to quit?" in Ask answers from
+    the last saved check. Saved in `health_checks` with `mode = 'retention'`
+    (no new migration).
+
+## D-033 --- Richer table profiles; parser version in the content hash (19 Nov 2026)
+
+-   **Decision:** Large-table profiles add cross-tabs between grouping
+    columns and totals of number columns per group (e.g. assignee × status,
+    story points by assignee). A parser version is part of each file's
+    content hash, so a parsing change re-ingests every file once.
+-   **Rationale:** Departure-impact questions need "who owns the open work",
+    which the Day 3 profile did not show; unchanged files were otherwise
+    never re-read.
+-   **Trade-off:** Re-ingesting replaces evidence rows, so concern evidence
+    links are rebuilt by the next analysis run.

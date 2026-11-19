@@ -3,8 +3,15 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
+import PageLoader from "@/components/PageLoader";
+
+type Reported = { status: string; reportedOn: string; expectedExit?: string | null; note?: string | null; source: string };
+type RetentionFlag = { empId: string; name: string; level: "check_in" | "urgent"; reasons: Array<{ text: string; source: string }>; suggestion: string };
+type RetentionCheck = { checkedAt: string; people: RetentionFlag[] };
+type ImpactAnswer = { answer: string; sources: Array<{ n: number; source: string }> };
 
 type Person = {
+  reported?: Reported | null;
   empId: string;
   name: string;
   title: string;
@@ -103,6 +110,40 @@ export default function PeopleDirectory() {
   const [editingChange, setEditingChange] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ manager: string; date: string }>({ manager: "", date: "" });
   const [savingChange, setSavingChange] = useState(false);
+  const [retention, setRetention] = useState<RetentionCheck | null>(null);
+  const [retentionRunning, setRetentionRunning] = useState(false);
+  const [retentionLoaded, setRetentionLoaded] = useState(false);
+  const [retentionError, setRetentionError] = useState<string | null>(null);
+  const flagFor = (empId: string) => retention?.people.find((flag) => flag.empId === empId);
+  const [reportDraft, setReportDraft] = useState<{ empId: string; exit: string; note: string } | null>(null);
+  const [impact, setImpact] = useState<Record<string, ImpactAnswer | "loading">>({});
+
+  async function saveReport(empId: string, body: Record<string, unknown> | null) {
+    await fetch(`/api/people/${empId}/report`, {
+      method: body ? "POST" : "DELETE",
+      headers: { "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    setReportDraft(null);
+    await reloadDirectory();
+  }
+
+  async function explainDeparture(person: Person) {
+    setImpact((current) => ({ ...current, [person.empId]: "loading" }));
+    try {
+      const response = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          question: `${person.name} (${person.title}) ${person.reported ? "has resigned" : "might leave"}${person.exitDate ? `, last day around ${person.exitDate}` : ""}. What does this do to the work they own: which projects, deadlines and open tasks depend on them, who could take it over, and what should I tell the board?`,
+        }),
+      });
+      const body = await response.json();
+      setImpact((current) => ({ ...current, [person.empId]: { answer: body.answer ?? body.error ?? "No answer came back.", sources: body.sources ?? [] } }));
+    } catch {
+      setImpact((current) => ({ ...current, [person.empId]: { answer: "I couldn't reach the server. Try again.", sources: [] } }));
+    }
+  }
 
   async function reloadDirectory() {
     const response = await fetch("/api/people");
@@ -143,7 +184,26 @@ export default function PeopleDirectory() {
         setError(reason instanceof Error ? reason.message : "Unable to load people."),
       )
       .finally(() => setLoading(false));
+    // Last saved retention check, shown without re-running it.
+    fetch("/api/retention-check")
+      .then((response) => response.json())
+      .then((result) => setRetention(result.check ?? null))
+      .catch(() => undefined)
+      .finally(() => setRetentionLoaded(true));
   }, []);
+
+  async function runRetentionCheck() {
+    setRetentionRunning(true);
+    setRetentionError(null);
+    try {
+      const response = await fetch("/api/retention-check", { method: "POST" });
+      const result = await response.json();
+      if (response.ok && result.check) setRetention(result.check);
+      else setRetentionError(result.error ?? "The retention check couldn't run.");
+    } finally {
+      setRetentionRunning(false);
+    }
+  }
 
   useEffect(() => {
     threadEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -242,6 +302,11 @@ export default function PeopleDirectory() {
     }
   }
 
+  // The page appears only once people and the retention check are both in.
+  if (loading || !retentionLoaded) {
+    return <PageLoader lines={["Loading the team", "Tracing who reports to whom", "Checking who needs a check-in"]} />;
+  }
+
   return (
     <>
       <header className="people-header">
@@ -295,6 +360,23 @@ export default function PeopleDirectory() {
           </div>
         </div>
       </div>
+
+      <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-5 py-4">
+        <div className="min-w-0">
+          <p className="section-eyebrow text-[var(--warning)]">Retention watch</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {retention
+              ? retention.people.length
+                ? `${retention.people.length} ${retention.people.length === 1 ? "person" : "people"} you may want to check in with (${retention.people.filter((flag) => flag.level === "urgent").length} urgent) · checked ${new Date(retention.checkedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}. Open a row for the reasons.`
+                : `No one stood out when last checked (${new Date(retention.checkedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}).`
+              : "Who you may want to check in with about workload or retention, and why. Uses work records only: no messages, no scores."}
+          </p>
+          {retentionError && <p className="mt-1 text-xs text-[var(--critical)]">{retentionError}</p>}
+        </div>
+        <button type="button" className="talk-button" onClick={runRetentionCheck} disabled={retentionRunning}>
+          {retentionRunning ? "Checking… (up to a minute)" : retention ? "Check again" : "Run retention check"}
+        </button>
+      </section>
 
       {(changes.length > 0 || warnings.length > 0) && (
         <section className="mb-4 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-5">
@@ -395,7 +477,6 @@ export default function PeopleDirectory() {
           <span>Mentioned in</span>
           <span />
         </div>
-        {loading && <p className="people-empty">Loading people…</p>}
         {error && <p className="people-empty">{error}</p>}
         {!loading && !error && visible.length === 0 && (
           <p className="people-empty">No one matches this view.</p>
@@ -429,6 +510,14 @@ export default function PeopleDirectory() {
                   <span className="min-w-0">
                     <span className="person-name">
                       {person.name}
+                      {flagFor(person.empId) && (
+                        <span
+                          className={`ml-2 rounded-full px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-[.08em] ${flagFor(person.empId)!.level === "urgent" ? "bg-[var(--crit-soft)] text-[var(--critical)]" : "bg-[var(--warn-soft)] text-[var(--warning)]"}`}
+                          title={flagFor(person.empId)!.reasons.map((reason) => reason.text).join("; ")}
+                        >
+                          {flagFor(person.empId)!.level === "urgent" ? "urgent" : "check in"}
+                        </span>
+                      )}
                       {(person.pendingChanges?.length ?? 0) > 0 && (
                         <span className="ml-2 rounded-full bg-[var(--warn-soft)] px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-[.08em] text-[var(--warning)]" title={person.pendingChanges!.map((change) => `→ ${change.to} (${change.when})`).join("; ")}>
                           moving
@@ -494,6 +583,19 @@ export default function PeopleDirectory() {
               </div>
               {expanded && (
                 <div className="people-detail">
+                  {flagFor(person.empId) && (
+                    <div className="col-span-full rounded-xl border border-[var(--warning)] bg-[var(--warn-soft)] p-4">
+                      <p className="people-detail-label text-[var(--warning)]">Why you might check in</p>
+                      <ul className="mt-2 space-y-1 text-sm">
+                        {flagFor(person.empId)!.reasons.map((reason) => (
+                          <li key={reason.text}>
+                            {reason.text} <span className="font-mono text-[10px] text-[var(--muted)]">— {reason.source}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-sm"><strong>Suggestion:</strong> {flagFor(person.empId)!.suggestion}</p>
+                    </div>
+                  )}
                   <div>
                     <p className="people-detail-label">Reporting line</p>
                     <p className="mt-1 text-sm text-[var(--ink)]">
@@ -538,6 +640,89 @@ export default function PeopleDirectory() {
                       <p className="mt-1 text-sm text-[var(--muted)]">Not mentioned in any document yet.</p>
                     )}
                   </div>
+                  {person.level > 0 && person.isActive && (
+                    <div className="col-span-full border-t border-[var(--line)] pt-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {person.reported ? (
+                          <>
+                            <span className="sev-pill sev-pill-medium">
+                              {person.status}{person.exitDate ? ` · last day ~${person.exitDate}` : ""}
+                            </span>
+                            <span className="text-xs text-[var(--muted)]">
+                              You reported this on {person.reported.reportedOn}; not in the HR records yet.
+                            </span>
+                            <button type="button" className="ghost-button" onClick={() => saveReport(person.empId, null)}>
+                              Clear
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => setReportDraft({ empId: person.empId, exit: "", note: "" })}
+                          >
+                            Record a resignation
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="talk-button"
+                          disabled={impact[person.empId] === "loading"}
+                          onClick={() => explainDeparture(person)}
+                        >
+                          {impact[person.empId] === "loading" ? "Working it out…" : `What does ${person.name.split(" ")[0]} leaving mean?`}
+                        </button>
+                      </div>
+                      {reportDraft?.empId === person.empId && (
+                        <div className="mt-3 flex flex-wrap items-end gap-2">
+                          <label className="text-xs text-[var(--muted)]">
+                            Expected last day
+                            <input
+                              type="date"
+                              value={reportDraft.exit}
+                              onChange={(event) => setReportDraft({ ...reportDraft, exit: event.target.value })}
+                              className="mt-1 block rounded-lg border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 text-sm text-[var(--ink)]"
+                            />
+                          </label>
+                          <label className="min-w-[16rem] flex-1 text-xs text-[var(--muted)]">
+                            Note (optional)
+                            <input
+                              value={reportDraft.note}
+                              onChange={(event) => setReportDraft({ ...reportDraft, note: event.target.value })}
+                              placeholder="e.g. told me this morning, two months' notice"
+                              className="mt-1 block w-full rounded-lg border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 text-sm text-[var(--ink)]"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="talk-button"
+                            onClick={() =>
+                              saveReport(person.empId, {
+                                status: "resigned",
+                                expectedExit: reportDraft.exit || null,
+                                note: reportDraft.note || null,
+                              })
+                            }
+                          >
+                            Save
+                          </button>
+                          <button type="button" className="ghost-button" onClick={() => setReportDraft(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                      {impact[person.empId] && impact[person.empId] !== "loading" && (
+                        <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-4 text-sm leading-7">
+                          {(impact[person.empId] as ImpactAnswer).answer}
+                          {(impact[person.empId] as ImpactAnswer).sources.length > 0 && (
+                            <p className="mt-2 font-mono text-[10px] text-[var(--muted)]">
+                              Sources: {(impact[person.empId] as ImpactAnswer).sources.map((source) => `[${source.n}] ${source.source}`).join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </Fragment>

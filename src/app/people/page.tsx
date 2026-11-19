@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import PeopleDirectory from "@/components/people/PeopleDirectory";
+import PageLoader from "@/components/PageLoader";
 
 export const metadata: Metadata = {
   title: "People",
@@ -12,7 +13,7 @@ export default function PeoplePage() {
     <main className="mx-auto w-full max-w-[1380px] flex-1 px-5 py-8 lg:px-10">
       {/* The directory reads ?department / ?chat / ?about on the client;
           useSearchParams needs a Suspense boundary under Cache Components. */}
-      <Suspense fallback={<p className="text-sm text-[var(--muted)]">Loading people…</p>}>
+      <Suspense fallback={<PageLoader lines={["Loading the team"]} />}>
         <PeopleDirectory />
       </Suspense>
     </main>

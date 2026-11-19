@@ -58,6 +58,8 @@ async function latest(supabase: Supabase) {
   const saved = await supabase
     .from("health_checks")
     .select("checked_at, mode, model, areas")
+    // The retention check shares this table under its own mode.
+    .neq("mode", "retention")
     .order("checked_at", { ascending: false })
     .limit(1)
     .maybeSingle();

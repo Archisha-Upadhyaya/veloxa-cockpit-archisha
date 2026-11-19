@@ -93,8 +93,16 @@ export async function syncEmployees(supabase: SupabaseClient, files: ParsedFile[
   const records = parseEmployeeMaster(await fs.readFile(master.absolutePath));
   const today = new Date().toISOString().slice(0, 10);
 
+  // CEO-reported status (e.g. a resignation the HR export does not show yet)
+  // lives beside the HR fields and must survive every re-sync.
+  const existing = await supabase.from("employee_profiles").select("employee_key, profile");
+  const reportedBy = new Map(
+    (existing.data ?? []).map((row) => [row.employee_key, (row.profile as { reported?: unknown } | null)?.reported]),
+  );
+
   for (const record of records) {
     const left = Boolean(record.exitDate && record.exitDate < today);
+    const reported = reportedBy.get(record.employeeKey);
     const saved = await supabase.from("employee_profiles").upsert(
       {
         employee_key: record.employeeKey,
@@ -114,6 +122,7 @@ export async function syncEmployees(supabase: SupabaseClient, files: ParsedFile[
             row: record.sourceRow,
             availableAt: master.availableAt,
           },
+          ...(reported ? { reported } : {}),
         },
       },
       { onConflict: "employee_key" },

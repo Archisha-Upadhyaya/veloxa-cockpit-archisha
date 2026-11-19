@@ -1,7 +1,7 @@
 # Assumptions Register --- Veloxa CXO Cockpit
 
 **Status:** Updated through Day 3\
-**Date opened:** 16 November 2026, last updated 18 November 2026
+**Date opened:** 16 November 2026, last updated 19 November 2026
 
 This is a living register. Never delete an assumption that turns out to
 be wrong. Change its status to `revised`, `confirmed` or `rejected`,
@@ -241,6 +241,22 @@ revised rows keep their original text above.
 -   **A-026 --- Leadership is not a team.** *Basis:* The only Leadership row
     is the CEO. Team counts, filters and the health check leave out any
     department made up only of the CEO. *Status:* Active.
+
+## Additions --- 19 November 2026
+
+-   **A-028 --- Priya Nair has resigned, last day about 19 Jan 2027.**
+    *Basis:* CEO voice note T6d ("Pria resigned this morning. Notice period
+    two months, I think"). Not in any HR record. Stored as CEO-reported.
+    *Confidence:* High that she resigned; Low-Medium on the notice length.
+    *Would change my mind:* An HR export or resignation letter. *Status:*
+    Active.
+-   **A-029 --- "PN" in the Jira export is Priya Nair.** *Basis:* Jira shows
+    assignees as initials; PN's tickets are core engine, re-routing and
+    hardening, matching Vikram's 2 Jun plan for Priya; no other employee
+    has those initials. *Confidence:* High. *Status:* Active.
+-   **A-030 --- No Slack or chat data exists in the packs.** *Basis:* No
+    such files in Day 1--4. T6c's request could not be met from the records
+    even if it were appropriate. *Status:* Active.
 
 ## Revision protocol
 

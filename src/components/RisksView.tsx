@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import PageLoader from "@/components/PageLoader";
 import { AreaPill, ConfidencePill, SeverityPill } from "@/components/pills";
 
 type Finding = {
@@ -65,8 +66,12 @@ export default function RisksView() {
     </Link>
   );
 
+  if (loading) return <PageLoader lines={["Loading concerns", "Ranking by severity and confidence"]} />;
+
   return (
     <div>
+      <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[var(--accent)]">Concerns</p>
+      <h1 className="mt-2 mb-6 font-serif text-4xl tracking-[-.04em]">Everything that needs your attention</h1>
       {areas.length > 0 && (
         <div className="mb-8 flex flex-wrap gap-2">
           {["All", ...areas].map((item) => (
@@ -80,7 +85,6 @@ export default function RisksView() {
           ))}
         </div>
       )}
-      {loading && <p className="text-sm text-[var(--muted)]">Loading…</p>}
 
       <p className="section-eyebrow text-[var(--critical)]">Going wrong · {concerns.length}</p>
       <div className="mt-3 flex flex-col gap-3">

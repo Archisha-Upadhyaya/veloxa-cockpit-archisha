@@ -2,7 +2,7 @@
 
 **Project:** Veloxa CXO Cockpit  
 **Hackathon:** Hiyaku Systems Individual Hackathon  
-**Log period:** Day 1 to Day 3 — 16 to 18 November 2026  
+**Log period:** Day 1 to Day 4 — 16 to 19 November 2026  
 **Purpose:** Record where AI assistance was used during analysis and development, what was retained or changed, and how the final decisions were reviewed. This is a working project log, not a transcript of every prompt.
 
 ---
@@ -288,6 +288,58 @@ search box that answers questions.
   no styles.
 - **Outcome:** Fixed. Local checks now use `next dev` only; production
   builds are run before deploying, on request.
+
+---
+
+## AI-020 — Day 4 voice notes: T6c and T6d
+
+**Work item (19 Nov):** Day 4 has no data-room files, only two CEO voice
+notes.
+
+- **AI assistance:** Drafted the response to T6c (declined: individual
+  quit-risk ranking from private messages) and built the T6d answer:
+  CEO-reported statuses, a departure-impact action, and Jira/git profile
+  cross-tabs.
+- **Candidate review:** Checked every board-call figure against the raw
+  Jira export and git log with separate scripts (PN: 14 of 27 open issues,
+  62 of 115 open story points; Priya 588 of 843 engine commits; GA 15 Dec).
+  The model's first answer missed all of them and cited an unrelated
+  payroll email; the profile, prompt and citation changes fixed most of
+  that, but the lite model still misreads some totals, so the verified
+  figures are written in `TRANSCRIPT_NOTES.md`.
+- **Changes made:** Surveillance-request guard with tests built from the
+  voice-note wording; reported status preserved through syncs; Ask always
+  sees the directory and maps initials, handles and misspellings; one
+  citation number per document.
+- **Verification:** Unit tests (`chat-safety`, `table-profile`); live Ask
+  on hosted Supabase for both voice notes; Priya's status checked to
+  survive a full re-sync.
+- **Outcome:** Accepted. Docker data updated through the code directly; the
+  Docker app image was not rebuilt (no builds until requested).
+
+---
+
+## AI-021 — Retention watch, loaders and a dev-server loop
+
+**Work item (19 Nov):** The CEO preferred an on-demand "prone to resign"
+view over a refusal; pages showed empty cards before data; the dev page on
+:3001 reloaded endlessly.
+
+- **Retention watch:** work-records-only check with cited reasons; the
+  CEO-reported resignation is added by code with source "Reported by you"
+  after the model first cited a board update for it. Live result: Priya
+  (urgent: resignation, ownership email, late nights), Sneha (urgent:
+  on-call and incidents), Aisha (check in).
+- **Loaders:** a branded loader (the "V" mark drawing itself) on every
+  page; nothing renders until that page's data has arrived. Verified in
+  headless Chrome: loader first, then the full page, no empty cards.
+- **Reload loop:** reproduced (27 page loads in 15 s with no file
+  changes); cause was a corrupted `.next/dev` cache shared by earlier
+  servers and a production build. Cleared and restarted: one load.
+- **Audit:** both databases re-checked (documents per day, no voice notes,
+  personas, reported status, findings complete). Found zero embeddings
+  after the re-ingest and a mismatched `match_evidence` signature on
+  hosted; listed for follow-up.
 
 ---
 

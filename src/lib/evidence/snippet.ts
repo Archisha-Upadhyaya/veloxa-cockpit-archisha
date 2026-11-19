@@ -1059,3 +1059,33 @@ export function safeFacts(facts: string[], limit = 3) {
     .filter((fact, index, all) => all.indexOf(fact) === index)
     .slice(0, limit);
 }
+
+/** "Who is likely to quit?" — answered from the retention check, not refused. */
+export function isQuitRankingRequest(question: string): boolean {
+  const text = question.toLowerCase();
+  return (
+    /\b(rank|list|who|which (?:people|employees|ones))\b[^.?!]{0,60}\b(likely to|going to|about to|might|will|may)\s+(quit|leave|resign)\b/.test(text) ||
+    /\b(flight|quit|attrition|resignation|retention)\s+risk\b[^.?!]{0,40}\b(rank|list|by (?:name|person|employee)|each|every(?:one)?|individual|who)/.test(text) ||
+    /\b(rank|list|who)\b[^.?!]{0,40}\b(flight|quit|attrition|retention)\s+risk\b/.test(text) ||
+    /\bprone to (?:quit|leave|resign)/.test(text)
+  );
+}
+
+/** Requests to read people's private messages: always declined (T6c). */
+export function isPrivateMessageRequest(question: string): boolean {
+  const text = question.toLowerCase();
+  return (
+    /\b(slack|slag|whatsapp|teams chat|dms?|direct messages?|private messages?|personal messages?|chat logs?|inbox(?:es)?)\b/.test(text) &&
+    /\b(show|read|see|pull|get|open|check|monitor|what (?:they|he|she)(?:'re| are| is)? saying)\b/.test(text)
+  );
+}
+
+/** Kept for callers that only need "should this be handled specially". */
+export function isSurveillanceRequest(question: string): boolean {
+  return isQuitRankingRequest(question) || isPrivateMessageRequest(question);
+}
+
+export const PRIVATE_MESSAGE_REFUSAL =
+  "I can't show anyone's private messages: there are no Slack or chat records in the company's documents, and reading people's private messages to judge them would be monitoring them. For who might need a check-in, use the retention check on the People page; it works only from work records like workload, on-call load and open tickets.";
+
+export const SURVEILLANCE_REFUSAL = PRIVATE_MESSAGE_REFUSAL;

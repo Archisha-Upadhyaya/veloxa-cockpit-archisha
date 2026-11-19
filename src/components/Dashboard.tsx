@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import Link from "next/link";
 import { useNow } from "@/components/useNow";
+import PageLoader from "@/components/PageLoader";
 import { areaColor, ConfidencePill, SeverityPill, AreaPill, StatusDot } from "@/components/pills";
 
 type Finding = {
@@ -196,6 +197,19 @@ export default function Dashboard() {
     return (
       <main className="mx-auto max-w-3xl px-5 py-16">
         <p className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6 text-sm text-[var(--muted)]">{error}</p>
+      </main>
+    );
+  }
+
+  // Nothing renders until the brief, people and health check have all
+  // arrived, so cards never appear empty and fill in later.
+  if (!brief) {
+    return (
+      <main className="mx-auto w-full max-w-[1280px] px-5">
+        <PageLoader
+          fullScreen
+          lines={["Reading the latest documents", "Ranking what needs you", "Checking who to talk to"]}
+        />
       </main>
     );
   }

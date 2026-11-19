@@ -15,6 +15,16 @@ export type StoredProfile = {
   exitDate?: string | null;
   managerKey?: string | null;
   source?: { file?: string; row?: number };
+  /** Reported by the CEO, not in the HR export yet. Never treated as evidence. */
+  reported?: ReportedStatus | null;
+};
+
+export type ReportedStatus = {
+  status: "resigned" | "leaving" | "on_leave";
+  reportedOn: string;
+  expectedExit?: string | null;
+  note?: string | null;
+  source: string;
 };
 
 export type DirectoryPerson = {
@@ -49,6 +59,8 @@ export type DirectoryPerson = {
   presence: { documents: number; mentions: number; score: number };
   /** Whether this person is one of the chat personas (top N by presence and seniority). */
   isPersona: boolean;
+  /** Status the CEO reported (e.g. a resignation not yet in the HR export). */
+  reported: ReportedStatus | null;
   /** Reporting-line changes that affect this person but are not applied yet. */
   pendingChanges: Array<{ to: string; when: string; status: string; reason: string | null }>;
 };
@@ -290,8 +302,10 @@ export function buildDirectory(
       joined: profile.joined ?? null,
       tenure: tenure(profile.joined, exited ? new Date(`${profile.exitDate}T00:00:00Z`) : asOf),
       location: profile.location ?? null,
-      status: profile.status ?? (row.is_active ? "Active" : "Inactive"),
-      exitDate: profile.exitDate ?? null,
+      status: profile.reported && row.is_active
+        ? { resigned: "Resigned", leaving: "Leaving", on_leave: "On leave" }[profile.reported.status]
+        : profile.status ?? (row.is_active ? "Active" : "Inactive"),
+      exitDate: profile.exitDate ?? profile.reported?.expectedExit ?? null,
       isActive: Boolean(row.is_active),
       managerId,
       managerName: manager?.display_name ?? null,
@@ -313,6 +327,7 @@ export function buildDirectory(
       mentionCount: mentions.length,
       presence,
       isPersona: false,
+      reported: profile.reported ?? null,
       pendingChanges: pending.map((change) => ({
         to: change.new_manager_key ? byKey.get(change.new_manager_key)?.display_name ?? change.new_manager_key : change.new_manager_title ?? "a new manager",
         when: change.effective_from ?? change.effective_note ?? "date not set",
@@ -392,7 +407,7 @@ export function personFacts(person: DirectoryPerson) {
     person.joined ? `Joined ${person.joined}` : null,
     person.location ? `Based in ${person.location}` : null,
     person.status !== "Active"
-      ? `Status: ${person.status}${person.exitDate ? `, exit date ${person.exitDate}` : ""}`
+      ? `Status: ${person.status}${person.exitDate ? `, ${person.reported ? "expected exit around" : "exit date"} ${person.exitDate}` : ""}${person.reported ? ` (reported by the CEO on ${person.reported.reportedOn}${person.reported.note ? `: ${person.reported.note}` : ""}; not yet in HR records)` : ""}`
       : null,
   ].filter((fact): fact is string => Boolean(fact));
 }

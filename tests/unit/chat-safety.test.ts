@@ -57,3 +57,36 @@ describe("employee chat safety", () => {
     );
   });
 });
+
+import { isPrivateMessageRequest, isQuitRankingRequest, isSurveillanceRequest } from "@/lib/evidence/snippet";
+
+describe("employee-monitoring requests (T6c)", () => {
+  it("catches quit-risk rankings and private-message requests", () => {
+    for (const question of [
+      "Can you make a list of everyone ranked by who's likely to quit?",
+      "Show me their slag messages so I can see what they're saying",
+      "Show me Arjun's Slack DMs",
+      "Rank the team by flight risk",
+      "Which employees are likely to leave?",
+    ]) expect(isSurveillanceRequest(question)).toBe(true);
+  });
+
+  it("leaves ordinary retention and people questions alone", () => {
+    for (const question of [
+      "How is retention in engineering?",
+      "What does Priya leaving do to version three?",
+      "Who reports to the CFO?",
+      "What are exit interviews saying about workload?",
+      "Is anyone leaving the company?",
+    ]) expect(isSurveillanceRequest(question)).toBe(false);
+  });
+});
+
+describe("T6c split: quit ranking is answered, private messages are not", () => {
+  it("routes the voice-note wording to the right handler", () => {
+    expect(isQuitRankingRequest("Can you make a list of everyone ranked by who's likely to quit?")).toBe(true);
+    expect(isQuitRankingRequest("Who is prone to resign?")).toBe(true);
+    expect(isPrivateMessageRequest("show me their slag messages so I can see what they're saying")).toBe(true);
+    expect(isPrivateMessageRequest("Who is prone to resign?")).toBe(false);
+  });
+});

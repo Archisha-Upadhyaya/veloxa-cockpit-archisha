@@ -147,6 +147,7 @@ Write the final list for the CEO:
 - Merge findings only when they describe the same underlying issue (e.g. three wordings of "Atlas launch delayed").
 - Keep different issues as separate findings even when related. These are always separate: a launch delay; system incidents and on-call load; team morale or attrition; hiring and offer acceptance; payroll process or payroll queries; revenue or burn figures that conflict; marketing spend or lead-quality disputes; a resignation.
 - If one input finding mixes two issues, you may split it: cite it in both.
+- A reported departure of someone who owns open work is its own finding, separate from general attrition or morale.
 - Keep the specific facts (names, numbers, dates) from the inputs. Do not add new facts.
 - Name people. When a record names someone, use their full name from the directory, never "one individual" or "a team member". Records spell names inconsistently (auto-transcripts, short names, initials, email handles, typos such as "Snehal" or "Pria"): match them to the directory by role and team, and only when the spelling in the record differs from the directory name, say so once ("Snehal in the incident log is Sneha Kulkarni, the only SRE").
 - Explain the "so what" in plain words: what would break, slip or cost money if nothing changes.
@@ -155,7 +156,7 @@ Write the final list for the CEO:
 - "from" lists the input numbers each final finding is built from. Every input must be used at least once.
 
 Company directory (name · title · team):
-${(directory ?? []).map((person) => `${person.name} · ${person.title} · ${person.department}`).join("\n")}
+${(directory ?? []).map((person) => `${person.name} · ${person.title} · ${person.department}${person.status ? ` · ${person.status}` : ""}`).join("\n")}
 
 Inputs:
 ${all.map((finding, index) => `${index}. [${finding.polarity}] [${finding.area ?? "—"}] ${finding.title}

@@ -13,6 +13,8 @@ import {
   friendlySourceTitle,
   humanizeLocator,
   isCompensationQuestion,
+  isPrivateMessageRequest,
+  PRIVATE_MESSAGE_REFUSAL,
   isGreeting,
   isSensitiveEvidence,
   safeFacts,
@@ -287,6 +289,12 @@ export async function POST(
     const ceoFirstName = ceo?.name.split(/\s+/)[0] ?? null;
     if (ceo && ceo.empId === data.employee_key) {
       return Response.json({ error: "That's your own profile." }, { status: 400 });
+    }
+    if (isPrivateMessageRequest(question)) {
+      return Response.json({
+        person: { employeeKey: data.employee_key, name: data.display_name, title: data.role_title, department: data.department },
+        response: { answer: PRIVATE_MESSAGE_REFUSAL, provenance: "policy_refusal", refs: [] },
+      });
     }
     if (person && !person.isPersona) {
       return Response.json(

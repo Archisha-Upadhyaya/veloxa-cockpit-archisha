@@ -1,9 +1,11 @@
 # Architecture --- Veloxa CXO Cockpit
 
-**Status:** Day 1 architecture baseline\
-**Date:** 16 November 2026\
-**Scope:** Day 1 release pack only. Later release packs may change this
-design; changes must be recorded in `DECISIONS.md`.
+**Status:** Day 1 baseline (sections 1--15), with the changes through Day 3
+summarised in section 16\
+**Date:** 16 November 2026, updated 18 November 2026\
+**Scope:** Sections 1--15 describe the Day 1 design and are kept as history.
+Where they conflict with section 16, section 16 and `DECISIONS.md` describe
+the system as built.
 
 ## 1. Architectural direction
 
@@ -650,3 +652,99 @@ tables or submit unrestricted SQL.
 -   Ingestion is repeatable without duplicate rows.
 -   The application can be explained and modified without relying on an
     LLM to explain its own architecture.
+
+## 16. Changes through Day 3 (18 November 2026)
+
+This section describes the system as built. Decision numbers refer to
+`DECISIONS.md`.
+
+### 16.1 Data sources
+
+-   **Ingested:** Day 1--3 release packs (`VELOXA_RELEASE_DAYS`). Data-room
+    files are primary evidence; call transcripts (T1--T5) are secondary.
+    CEO voice notes (T6*) are never ingested (D-029).
+-   **People:** from the latest released `Employee_Master.xlsx`
+    (`src/lib/ingestion/people.ts`): name, title, team, `Manager ID`,
+    join date, location, status, exit date.
+-   **Large tables** (e.g. the 1,453-row git log) get a generated profile as
+    their first chunk: rows per month and per grouping column
+    (`src/lib/ingestion/table-profile.ts`).
+-   **No hand-written data.** The Day 1 seed (`seed-data.ts`, scripted
+    interviews, invented persona details, pre-written concerns) was deleted
+    (D-020); section 12's `seed-agents.ts` and invented persona details no
+    longer apply.
+
+### 16.2 Analysis pipeline (`/api/analyze`)
+
+1.  Load every released, non-sensitive record (first chunks only for long
+    documents).
+2.  Analyse each data-room folder separately; transcripts are added to
+    every batch as context (`src/lib/analysis/corpus.ts`).
+3.  Each batch returns findings with observed facts, inference, next step,
+    severity, confidence, area, owner and per-record "why", using Gemini
+    structured output validated with Zod (D-023, D-024).
+4.  A consolidation pass merges duplicates and keeps distinct issues apart;
+    evidence and rationale are carried over, never rewritten (D-025).
+5.  Severity is capped by evidence and confidence; ranking is severity ×
+    confidence (D-022).
+6.  If no model answers, stored concerns are kept (D-021).
+
+### 16.3 Models (`src/lib/ai/gemini.ts`)
+
+Ordered failover chains per task. Analysis: `gemini-3.8-flash` →
+`gemini-3-flash-preview` → `gemini-3.1-flash-lite` →
+`gemini-flash-lite-latest`. Chat: lite models first. Override with
+`GEMINI_ANALYSIS_MODELS` / `GEMINI_CHAT_MODELS`.
+
+### 16.4 People, personas and reorganisations
+
+-   **Directory** (`src/lib/people/directory.ts`): a pure builder from HR
+    rows, dated `org_changes` and evidence. Reporting loops and unknown
+    managers are reported as warnings; nobody is dropped (D-027).
+-   **Personas:** the 14 active non-CEO people with the most presence in
+    documents, seniority as tie-break (D-026). Replaces section 9's fixed
+    department roster. Known limitation: name variants (e.g. "Ayesha") are
+    not yet counted (A-027).
+-   **Persona voice:** generated once from the person's own records and
+    cached in `agent_personas`, regenerated when their manager or title
+    changes (`src/lib/people/persona.ts`).
+-   **Owners:** a concern's "Talk to" person falls back to the most senior
+    persona in its area if the named owner has left or is not a persona.
+
+### 16.5 CEO-facing features
+
+-   **Overview:** greeting, counts, top three concerns above the fold, Ask,
+    health check, latest documents, teams.
+-   **Ask** (`/api/ask`): reads the whole released corpus (it is small) and
+    answers with renumbered citations, preferring company records over calls.
+-   **Health check** (`/api/health-check`): 5--8 business areas chosen from
+    the evidence, a contact per area; the last result is saved in
+    `health_checks` (D-028).
+-   **Chat:** persona replies with conversation history; the CEO is
+    addressed by name; only personas can be chatted with.
+
+### 16.6 Schema additions
+
+| Migration | Adds |
+|---|---|
+| `20261118000000_concern_narrative.sql` | `risk_items.observed`, `inference`, `recommended_action` |
+| `20261118010000_evidence_rationale.sql` | `risk_evidence.rationale`; `risk_items.polarity`, `area`, `owner_employee_key` |
+| `20261118020000_org_changes.sql` | `org_changes` table |
+| `20261118030000_health_checks.sql` | `health_checks` table |
+
+Readers tolerate a database where these columns are missing
+(`src/lib/data/fallback.ts`), so an older database degrades rather than
+failing.
+
+### 16.7 Day 4 additions (19 November 2026)
+
+-   **CEO-reported status** (D-031): `profile.reported` on
+    `employee_profiles`, written by `POST /api/people/[id]/report`,
+    preserved by the HR sync, surfaced in the directory as e.g. "Resigned",
+    and given to analysis, Ask and chat as reported context.
+-   **Monitoring guard** (D-032): `isSurveillanceRequest` in
+    `src/lib/evidence/snippet.ts`, applied in Ask and chat.
+-   **Table profiles** (D-033): cross-tabs and per-group totals; parser
+    version in the content hash.
+-   **Ingestion scope:** default `Day1,Day2,Day3,Day4`; Day 4 adds no
+    documents (voice notes only).

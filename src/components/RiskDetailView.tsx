@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import PageLoader from "@/components/PageLoader";
 import { AreaPill, ConfidencePill, SeverityPill } from "@/components/pills";
 
 type Risk = {
@@ -54,7 +55,7 @@ export default function RiskDetailView({ riskKey }: { riskKey: string }) {
   }, [riskKey]);
 
   if (error) return <main className="mx-auto max-w-3xl px-5 py-12 text-sm text-[var(--muted)]">{error}</main>;
-  if (!risk) return <main className="mx-auto max-w-3xl px-5 py-12 text-sm text-[var(--muted)]">Loading…</main>;
+  if (!risk) return <main className="mx-auto max-w-3xl px-5"><PageLoader lines={["Loading the concern", "Gathering its evidence"]} /></main>;
 
   const positive = risk.polarity === "positive";
   const chatHref = owner

@@ -12,6 +12,9 @@ import {
   friendlySourceTitle,
   humanizeLocator,
   isCompensationQuestion,
+  isPrivateMessageRequest,
+  isQuitRankingRequest,
+  PRIVATE_MESSAGE_REFUSAL,
   isSensitiveEvidence,
   redactSensitiveLines,
 } from "@/lib/evidence/snippet";
@@ -20,9 +23,6 @@ type AskRequest = {
   question?: string;
   history?: Array<{ question: string; answer: string }>;
 };
-
-/** Notes about people are only included when the question is about people. */
-const PEOPLE_QUESTION = /\b(who|whom|team|teams|report|reports|manager|managers|people|staff|employee|employees|headcount|hire|hired|joined|leav|left|notice|department|org|structure|lead|leads|head)\w*/i;
 
 async function findEvidence(question: string): Promise<RetrievedEvidence[]> {
   const supabase = createServerSupabaseClient();
@@ -48,6 +48,32 @@ export async function POST(request: Request) {
     const question = body.question?.trim();
     if (!question) return Response.json({ error: "question is required" }, { status: 400 });
     const history = (body.history ?? []).slice(-4);
+
+    if (isPrivateMessageRequest(question)) {
+      return Response.json({ answer: PRIVATE_MESSAGE_REFUSAL, sources: [], mode: "policy" });
+    }
+    if (isQuitRankingRequest(question)) {
+      // Answered from the saved retention check (work records only).
+      const saved = await createServerSupabaseClient()
+        .from("health_checks")
+        .select("checked_at, areas")
+        .eq("mode", "retention")
+        .order("checked_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const flags = (saved.data?.areas ?? []) as Array<{ name: string; level: string; reasons: Array<{ text: string }> }>;
+      return Response.json({
+        answer: saved.data
+          ? flags.length
+            ? `From the last retention check (${new Date(saved.data.checked_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}), based only on work records: ${flags
+                .map((flag) => `${flag.name}${flag.level === "urgent" ? " (urgent)" : ""}: ${flag.reasons.map((reason) => reason.text.replace(/[.\s]+$/, "")).join("; ")}`)
+                .join(". ")}. These are reasons to check in, not predictions. Re-run it on the People page for a fresh view.`
+            : "The last retention check found no one with a clear reason for a check-in. You can re-run it on the People page."
+          : "Run the retention check on the People page. It lists who you may want to check in with and why, using only work records like workload, on-call load and open tickets.",
+        sources: [],
+        mode: "policy",
+      });
+    }
 
     if (isCompensationQuestion(question)) {
       return Response.json({
@@ -114,11 +140,22 @@ export async function POST(request: Request) {
         ).slice(0, 8);
 
     const notes: string[] = sources.map((item) => `(${item.source}) ${item.text}`);
-    if (PEOPLE_QUESTION.test(searchText)) {
+    // The directory is always included (it is short): people come up in
+    // most questions, often by first name, nickname or initials.
+    if (directory.length) {
       notes.push(
         `Company directory: ${directory
           .filter((person) => person.isActive)
           .map((person) => `${person.name} — ${personFacts(person).slice(0, 3).join("; ")}`)
+          .join(" | ")}`,
+      );
+    }
+    // Things the CEO has reported that the records do not show yet.
+    const reportedPeople = directory.filter((person) => person.reported);
+    if (reportedPeople.length) {
+      notes.push(
+        `Reported by the CEO, not yet in the records: ${reportedPeople
+          .map((person) => `${person.name} (${person.title}) — ${person.status}${person.exitDate ? `, expected exit around ${person.exitDate}` : ""}, reported ${person.reported!.reportedOn}${person.reported!.note ? `: ${person.reported!.note}` : ""}`)
           .join(" | ")}`,
       );
     }
@@ -143,8 +180,16 @@ export async function POST(request: Request) {
       n: index + 1,
       ...(sources[index] ?? {
         id: `context-${index}`,
-        summary: note.startsWith("Company directory") ? "Company directory (HR master)" : "Current morning brief",
-        source: note.startsWith("Company directory") ? "Employee master" : "Morning brief",
+        summary: note.startsWith("Company directory")
+          ? "Company directory (HR master)"
+          : note.startsWith("Reported by the CEO")
+            ? "What you reported (not yet in the records)"
+            : "Current morning brief",
+        source: note.startsWith("Company directory")
+          ? "Employee master"
+          : note.startsWith("Reported by the CEO")
+            ? "Reported by you"
+            : "Morning brief",
         locator: "",
         date: null,
       }),
@@ -159,18 +204,24 @@ ${notes.map((note, index) => `[${index + 1}] ${note}`).join("\n")}`,
         CEO_ASK_SYSTEM,
         { task: "chat", maxOutputTokens: 700, timeoutMs: 20_000 },
       );
-      // Renumber citations 1..k in order of first use, so the CEO sees
-      // [1] [2] [3], not the internal note numbers.
-      const order = [...text.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)]
+      // Renumber citations 1..k in order of first use, one number per
+      // document (several chunks of the same file share a citation), so the
+      // CEO sees [1] [2] [3], not internal note numbers.
+      const docKey = (n: number) => citedSources.find((source) => source.n === n)?.source ?? `#${n}`;
+      const firstUse = [...text.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)]
         .flatMap((match) => match[1].split(",").map((n) => Number(n.trim())))
-        .filter((n, index, all) => all.indexOf(n) === index && citedSources.some((source) => source.n === n));
-      const renumber = new Map(order.map((n, index) => [n, index + 1]));
+        .filter((n) => citedSources.some((source) => source.n === n));
+      const docs = [...new Set(firstUse.map(docKey))];
+      const numberOf = (n: number) => docs.indexOf(docKey(n)) + 1;
       const answer = text
         .trim()
         .replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_match, list: string) => {
-          const mapped = [...new Set(list.split(",").map((n) => renumber.get(Number(n.trim()))).filter(Boolean))];
+          const mapped = [...new Set(list.split(",").map((n) => Number(n.trim())).filter((n) => firstUse.includes(n)).map(numberOf))]
+            .sort((x, y) => x - y);
           return mapped.length ? `[${mapped.join(", ")}]` : "";
         });
+      const order = docs.map((doc) => firstUse.find((n) => docKey(n) === doc)!);
+      const renumber = new Map(order.map((n) => [n, numberOf(n)]));
       return Response.json({
         answer,
         sources: order

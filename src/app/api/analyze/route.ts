@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { analyzeEvidence, filterEvidenceAsOf, riskFingerprint } from "@/lib/analysis/risk";
 import { analyzeCorpus } from "@/lib/analysis/corpus";
+import { loadDirectory, personFacts } from "@/lib/people/directory";
 import { loadAnalysisEvidence } from "@/lib/analysis/evidence";
 
 type Supabase = ReturnType<typeof createServerSupabaseClient>;
@@ -63,19 +64,18 @@ export async function POST() {
 
   try {
     const evidence = filterEvidenceAsOf(await loadAnalysisEvidence(supabase, asOf), new Date(asOf));
-    const people = await supabase
-      .from("employee_profiles")
-      .select("employee_key, display_name, role_title, department")
-      .eq("is_active", true);
-    if (people.error) throw new Error(people.error.message);
+    // The directory (not raw rows) so reported statuses such as a fresh
+    // resignation reach the analysis.
+    const people = (await loadDirectory(supabase, new Date(asOf))).filter((person) => person.isActive);
     const analysis = await analyzeCorpus(
       evidence,
       new Date(asOf),
-      (people.data ?? []).map((person) => ({
-        key: person.employee_key,
-        name: person.display_name,
-        title: person.role_title ?? "",
-        department: person.department ?? "Unassigned",
+      people.map((person) => ({
+        key: person.empId,
+        name: person.name,
+        title: person.title,
+        department: person.department,
+        status: person.status !== "Active" ? personFacts(person).find((fact) => fact.startsWith("Status:")) : undefined,
       })),
     );
     if (analysis === null) {

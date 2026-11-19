@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 
 /** Tables with more data rows than this get a profile chunk. */
-export const PROFILE_MIN_ROWS = 60;
+export const PROFILE_MIN_ROWS = 40;
 
 const MONTH = /^(\d{4})-(\d{2})/;
 
@@ -56,5 +56,37 @@ export function profileTable(csv: string, label: string): string | null {
       }
     }
   });
+  // Cross-tabs between grouping columns (e.g. assignee × status) and totals of
+  // number columns per group (e.g. story points by assignee). Generic: no
+  // column is known by name.
+  const isNumeric = (index: number) => {
+    const values = column(index).filter(Boolean);
+    return values.length > rows.length * 0.6 && values.every((value) => /^-?\d+(\.\d+)?$/.test(value));
+  };
+  const grouping = header
+    .map((name, index) => ({ name, index, values: [...new Set(column(index).filter(Boolean))] }))
+    .filter((col) => col.index !== dateIndex && col.values.length >= 2 && col.values.length <= 10 && !isNumeric(col.index));
+  const numeric = header.map((name, index) => ({ name, index })).filter((col) => col.index !== dateIndex && isNumeric(col.index));
+  for (let a = 0; a < grouping.length; a += 1) {
+    for (let b = a + 1; b < grouping.length; b += 1) {
+      const [left, right] = [grouping[a], grouping[b]];
+      lines.push(`"${left.name}" × "${right.name}": ${left.values.map((lv) => {
+        const parts = right.values
+          .map((rv) => [rv, rows.filter((row) => String(row[left.index] ?? "").trim() === lv && String(row[right.index] ?? "").trim() === rv).length] as const)
+          .filter(([, count]) => count > 0)
+          .map(([rv, count]) => `${rv} ${count}`);
+        return `${lv} (${parts.join(", ")})`;
+      }).join("; ")}.`);
+    }
+    for (const num of numeric) {
+      const totals = grouping[a].values.map((value) => {
+        const sum = rows
+          .filter((row) => String(row[grouping[a].index] ?? "").trim() === value)
+          .reduce((total, row) => total + (Number(row[num.index]) || 0), 0);
+        return `${value} ${sum}`;
+      });
+      lines.push(`Total "${num.name}" by "${grouping[a].name}": ${totals.join(", ")}.`);
+    }
+  }
   return lines.join("\n");
 }

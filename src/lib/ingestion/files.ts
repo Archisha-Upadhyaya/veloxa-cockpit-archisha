@@ -11,6 +11,8 @@ import { isSensitiveEvidence } from "@/lib/evidence/snippet";
 import { profileTable } from "@/lib/ingestion/table-profile";
 
 const execFileAsync = promisify(execFile);
+/** Bump when parsing or profiling changes, to re-ingest every file once. */
+const PARSER_VERSION = "2026-11-19.1";
 const supportedExtensions = new Set([".csv", ".docx", ".eml", ".pdf", ".txt", ".xlsx"]);
 
 export type ParsedFile = {
@@ -150,9 +152,9 @@ function chunks(text: string, size = 1800, overlap = 220) {
 
 export async function readDataRoom(): Promise<ParsedFile[]> {
   const root = dataRoomRoot();
-  // Scope is configurable; by default the Day 1-3 packs are
+  // Scope is configurable; by default the Day 1-4 packs are
   // ingested. availableAt still gates visibility inside that scope.
-  const releaseDays = (process.env.VELOXA_RELEASE_DAYS ?? "Day1,Day2,Day3")
+  const releaseDays = (process.env.VELOXA_RELEASE_DAYS ?? "Day1,Day2,Day3,Day4")
     .split(",")
     .map((day) => day.trim())
     .filter(Boolean);
@@ -189,7 +191,9 @@ export async function readDataRoom(): Promise<ParsedFile[]> {
     parsed.push({
       absolutePath,
       relativePath,
-      contentHash: createHash("sha256").update(buffer).digest("hex"),
+      // The parser version is part of the hash, so improving how files are
+      // read (e.g. table profiles) re-ingests them once.
+      contentHash: createHash("sha256").update(PARSER_VERSION).update(buffer).digest("hex"),
       // Emails are titled by their subject; everything else by file name.
       title: emailSubject(absolutePath, text) ?? path.basename(absolutePath),
       tier: relativePath.includes("/transcripts/") ? "secondary" : "primary",

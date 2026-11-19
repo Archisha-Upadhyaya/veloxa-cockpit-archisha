@@ -255,6 +255,8 @@ export async function analyzeEvidence(evidence: Array<{
   name: string;
   title: string;
   department: string;
+  /** e.g. "Resigned, expected exit around 2027-01-19 (reported by the CEO…)" */
+  status?: string;
 }> = []) {
   // The released corpus is small, so the model reads each record in full
   // (with any pay lines removed) rather than a one-line summary.
@@ -313,8 +315,10 @@ Rules:
 - Write like a sharp chief of staff talking to the CEO: short sentences, concrete numbers and names, no buzzwords ("synergy", "alignment", "leverage", "robust", "holistic", "operational excellence").
 - Never mention individual salaries, payroll rows, or anyone's pay.
 
-${directory.length ? `Company directory (id · name · title · department):
-${directory.map((person) => `${person.key} · ${person.name} · ${person.title} · ${person.department}`).join("\n")}
+${directory.length ? `Company directory (id · name · title · department · status):
+${directory.map((person) => `${person.key} · ${person.name} · ${person.title} · ${person.department}${person.status ? ` · ${person.status}` : ""}`).join("\n")}
+
+A status marked "reported by the CEO" is not evidence: never cite it as a record. Use it to judge impact, and say the departure is "reported, not yet in HR records". When a reported departure affects work these records show that person owns or leads (tickets, commits, plans), raise it as its own finding, citing those records as evidence: what they own, how much of the open work that is, and the dates at risk.
 
 ` : ""}Evidence:
 ${[...byRef.entries()].map(([ref, item]) => `[${ref}] [${item.tier ?? "primary"}] ${item.source}\n${item.text}`).join("\n\n")}`;

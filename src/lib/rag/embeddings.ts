@@ -112,7 +112,8 @@ export function embeddingsProvider(): "gemini" | "local" {
  * this to avoid silently returning nothing in a Docker instance.
  */
 export function defaultMatchThreshold() {
-  return embeddingsProvider() === "local" ? 0.08 : 0.72;
+  // gemini-embedding-001 at 1536 dims: good matches score ~0.55–0.65 here.
+  return embeddingsProvider() === "local" ? 0.08 : 0.5;
 }
 
 async function embedWithGemini(texts: string[], taskType: EmbeddingTask) {

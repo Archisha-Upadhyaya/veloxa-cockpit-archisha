@@ -10,16 +10,25 @@ sentence a person can read, never a CSV row, a table, or a raw document chunk.
 
 ## What works today
 
-- **Company overview** — headcount, open concerns, latest sources, and a
-  three-item priority list. The overview never tries to show every concern.
-- **Concern register** — all open and watch items, ranked by severity,
-  likelihood, and recency. Every concern opens a detail page with short
-  evidence and a confidentiality notice when material is withheld.
-- **Evidence-grounded search** — `/api/retrieve` returns deduplicated snippets
-  with source and date labels, not raw chunks.
-- **Employee agents** — 14 employee personas. Answers sound like a colleague:
-  they use first person, admit what they do not know, and never expose pay or
-  quote internal records. Pay questions get a short, polite refusal.
+- **Morning brief (overview)** — greets the CEO by name and shows the three
+  most important concerns above the fold, each with the facts, a next step,
+  its evidence and a "Talk to …" button for the right person. If documents
+  arrived after the brief was built, it says so and offers to update it.
+- **Concern register** — all open items, ranked by severity × confidence.
+  Each concern's page shows what the records say, why it matters, the next
+  step, and every supporting record with the reason it counts.
+- **Ask anything** — `/api/ask` answers the CEO's questions from all released
+  records with numbered citations, preferring company records over call
+  transcripts and flagging conflicts.
+- **Company health check** — on demand, a status for 5–8 business areas
+  (clients and revenue, cash and spending, delivery…) with a contact for each;
+  the last result is saved.
+- **Employee chat** — 14 personas, chosen by how much each person appears in
+  the documents. Each has a voice generated from their own records, addresses
+  the CEO by name, admits what they do not know, and never exposes pay.
+- **Reporting line and reorganisations** — the directory comes from the HR
+  master's `Manager ID`; planned moves are dated changes that apply only when
+  confirmed and safe (see `DECISIONS.md` D-027).
 - **Ingestion** — Day-wise release packs are scanned from `transcripts/` and
   `data_room/`, hashed, and re-ingested only when changed. Earlier release days
   are unavailable to later as-of queries.
@@ -114,8 +123,8 @@ NEXT_PUBLIC_APP_URL=https://your-app.example.com
 fallback for existing deployments, but new deployments should use
 `SUPABASE_URL`. The app does not need a browser-side Supabase client.
 
-What gets ingested: the Day 1, 2 and 3 release packs (`VELOXA_RELEASE_DAYS`,
-default `Day1,Day2,Day3`). Data-room files are primary evidence; call transcripts are
+What gets ingested: the Day 1–4 release packs (`VELOXA_RELEASE_DAYS`,
+default `Day1,Day2,Day3,Day4`). Data-room files are primary evidence; call transcripts are
 secondary. CEO voice notes (`T6*`) are never ingested.
 
 Models: each task has its own failover chain (`GEMINI_ANALYSIS_MODELS`,
@@ -146,15 +155,21 @@ then `pnpm dev`.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/dashboard` | Overview metrics, latest sources, top three concerns |
+| `GET /api/dashboard` | Morning brief: CEO, counts, ranked concerns, whether the brief is out of date |
+| `GET /api/cockpit` | Everything above in one response (`?refresh=1` re-runs analysis first) |
 | `GET /api/risks` | All open/watch concerns, deduplicated and ranked |
-| `GET /api/risks/[riskKey]` | One concern with short evidence extracts |
-| `GET /api/people` | Directory-safe employee profiles |
-| `POST /api/people/[employeeKey]/chat` | Human-style employee answer with safe context |
-| `POST /api/retrieve` | Semantic search returning deduplicated snippets |
+| `GET /api/risks/[riskKey]` | One concern, its owner, and evidence with "why this counts" |
+| `GET /api/people` | Directory in reporting-line order, personas, pending reporting changes |
+| `POST /api/people/[employeeKey]/chat` | Persona reply, with conversation history |
+| `POST /api/ask` | Answer to any CEO question, with numbered sources |
+| `GET`/`POST /api/health-check` | Last saved health check / run a new one |
+| `GET`/`POST /api/org-changes`, `PATCH /api/org-changes/[id]` | Reporting-line changes |
+| `GET`/`POST /api/retention-check` | Last saved / new retention watch: who to check in with and why (work records only) |
+| `POST`/`DELETE /api/people/[employeeKey]/report` | Record or clear a status the CEO reports (e.g. a resignation) before HR records show it |
+| `POST /api/retrieve` | Search returning deduplicated snippets (keyword fallback) |
 | `POST /api/sync` | Incremental release-pack ingestion |
 | `POST /api/embed` | Quota-safe embedding batches |
-| `POST /api/analyze` | Grounded concern analysis, 5–10 concerns maximum |
+| `POST /api/analyze` | Concern analysis by folder, then consolidated; keeps stored concerns if no model answers |
 
 `sync`, `embed`, and `analyze` are trusted server operations. They are not
 protected by a public login in this hackathon build, so do not expose them as
@@ -218,7 +233,7 @@ src/
     └── supabase/            # trusted server client
 
 supabase/migrations/         # shared schema for Docker and hosted Supabase
-scripts/                     # seed, embed, Docker migration and bootstrap jobs
+scripts/                     # purge-seeded, sync-employees, embed, Docker migration and bootstrap jobs
 tests/unit/                  # Vitest safety and ranking tests
 docker/nginx.conf            # /rest/v1 gateway for the Supabase JS client
 ```
