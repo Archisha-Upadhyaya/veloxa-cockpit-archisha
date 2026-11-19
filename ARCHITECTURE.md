@@ -762,3 +762,7 @@ failing.
     `TimeMachine`), `PageLoader` + `Logo`, `ChatPanel` shared by drawer and
     `/chat/[id]`, `ReportView` at `/report`.
 -   **Sync follow-up:** `after()` embeds changed files and re-runs analysis.
+-   **Sign-in** (D-038): `src/proxy.ts` gates every route; signed session
+    cookie; bearer secret for server jobs.
+-   **Chat threads** (D-039): browser session storage, shared by the drawer
+    and `/chat/[id]`; cleared on end or sign-out.

@@ -498,4 +498,22 @@ history silently.
     send `Authorization: Bearer <VELOXA_SESSION_SECRET>`.
 -   **Alternatives:** Supabase Auth; a user table. Not needed for a single
     CEO user.
+-   **Updated 20 Nov 2026:** The login page gained a short product panel and
+    a show/hide password control. Signing out also clears chats kept in the
+    browser session.
+
+## D-039 --- Chat threads live in the browser session (20 Nov 2026)
+
+-   **Decision:** A conversation is kept in the browser's session storage per
+    person, so it carries over from the People drawer to the full chat page.
+    It ends when the CEO closes it (× or "End chat"), signs out, or closes the
+    tab. Nothing is stored on the server; the last few exchanges are sent with
+    each question so replies stay in context.
+-   **Alternatives:** Store threads in the database (persists across devices).
+-   **Revisit if:** Conversations need to survive closing the browser.
+
+## D-040 --- The PDF brief opens as a preview (20 Nov 2026)
+
+-   **Decision:** `/report` sits over a dimmed backdrop; clicking outside the
+    page, pressing Esc or "Close" returns to where it was opened.
 -   **Revisit if:** More than one person needs access, or roles differ.

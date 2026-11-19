@@ -382,6 +382,25 @@ for one-command local setup; a final Docker build.
 
 ---
 
+## AI-024 — Login polish, chat carry-over, PDF preview, logo
+
+**Work item (19–20 Nov):** Refinements requested after the sign-in landed.
+
+- **Logo:** replaced the boxed V with an original free-standing two-ribbon V
+  (the referenced Creative Fabrica template is a paid asset and was not
+  copied). Colours are inline so the mark renders before CSS loads.
+- **Login:** product panel beside the form, today's date and a greeting,
+  show/hide password.
+- **Chat carry-over:** a browser test showed the drawer conversation was lost
+  when expanding to the full page (an empty state was saved over it on
+  remount). Fixed by reading the saved thread as the initial state; ending a
+  chat or signing out clears it.
+- **PDF:** the brief closes on an outside click, Esc or "Close".
+- **Docs:** README wording made factual; the note that `sync`/`embed`/
+  `analyze` were unprotected was out of date and was corrected.
+
+---
+
 ## Ongoing AI-assisted workflow
 
 For subsequent work, entries will be added when AI materially contributes to analysis, code, tests or documentation. Each entry should record:

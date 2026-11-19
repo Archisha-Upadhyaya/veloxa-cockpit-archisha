@@ -25,11 +25,13 @@ sentence a person can read, never a CSV row, a table, or a raw document chunk.
   the last result is saved.
 - **Employee chat** — 14 personas, chosen by how much each person appears in
   the documents. Each has a voice generated from their own records, addresses
-  the CEO by name, admits what they do not know, and never exposes pay.
+  the CEO by name, admits what they do not know, and never exposes pay. A
+  conversation started in the side panel continues on its full page
+  (`/chat/[person]`) and lasts until it is ended or the CEO signs out.
 - **Time machine** — view the company as known at the end of any past day:
   documents, concerns, who had joined, who was on leave or had left.
-- **Brief as PDF** — `/report`, an A4 document with letterhead, ready to save
-  as PDF.
+- **Brief as PDF** — `/report`, an A4 document with letterhead that opens like
+  a preview (click outside or press Esc to close) and saves as PDF.
 - **Dark mode and phones** — light/dark/system theme; bottom tab bar on
   mobile.
 - **Reporting line and reorganisations** — the directory comes from the HR
@@ -69,10 +71,10 @@ Then open **http://localhost:3000** and sign in:
 |---|---|
 | `ceo` | `veloxa-brief` |
 
-These are demo credentials. Change them (and the session secret) with
-`VELOXA_USERNAME`, `VELOXA_PASSWORD` and `VELOXA_SESSION_SECRET` in
-`.env.local` before deploying anywhere public. Every page and API requires
-sign-in; signed-out visits go to `/login` and return to the page afterwards.
+These are placeholder credentials, configurable through `VELOXA_USERNAME`,
+`VELOXA_PASSWORD` and `VELOXA_SESSION_SECRET`. Every page and API sits behind
+sign-in; a signed-out visit goes to `/login` and returns to the page
+afterwards. Signing out also clears any open chats.
 
 That one command:
 
@@ -156,10 +158,9 @@ SUPABASE_SECRET_KEY=sb_secret_...
 NEXT_PUBLIC_APP_URL=https://your-app.example.com
 ```
 
-`SUPABASE_SECRET_KEY` is server-only and must never be exposed as a
-`NEXT_PUBLIC_*` variable. `NEXT_PUBLIC_SUPABASE_URL` remains supported as a
-fallback for existing deployments, but new deployments should use
-`SUPABASE_URL`. The app does not need a browser-side Supabase client.
+`SUPABASE_SECRET_KEY` is read only on the server; the app has no
+browser-side Supabase client. `SUPABASE_URL` is the primary setting, with
+`NEXT_PUBLIC_SUPABASE_URL` accepted as a fallback.
 
 What gets ingested: the Day 1–4 release packs (`VELOXA_RELEASE_DAYS`,
 default `Day1,Day2,Day3,Day4`). Data-room files are primary evidence; call transcripts are
@@ -210,9 +211,8 @@ then `pnpm dev`.
 | `POST /api/embed` | Quota-safe embedding batches |
 | `POST /api/analyze` | Concern analysis by folder, then consolidated; keeps stored concerns if no model answers |
 
-`sync`, `embed`, and `analyze` are trusted server operations. They are not
-protected by a public login in this hackathon build, so do not expose them as
-unauthenticated production endpoints without adding access control.
+Like every route, these require sign-in. Server jobs (the Docker bootstrap)
+call them with `Authorization: Bearer <VELOXA_SESSION_SECRET>`.
 
 ## How evidence is made safe
 
