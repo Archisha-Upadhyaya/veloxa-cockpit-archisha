@@ -17,6 +17,31 @@ type Message = { question: string; answer: string | null; provenance: string };
 
 const storageKey = (empId: string) => `veloxa-chat-${empId}`;
 
+/**
+ * The thread kept for this browser session. A question still waiting for its
+ * reply when the view changed comes back as text to re-send, so nothing
+ * typed is lost.
+ */
+function readThread(empId: string): { messages: Message[]; waiting: string | null } {
+  try {
+    const raw = typeof window === "undefined" ? null : sessionStorage.getItem(storageKey(empId));
+    const all = raw ? (JSON.parse(raw) as Message[]) : [];
+    return {
+      messages: all.filter((entry) => entry.answer !== null),
+      waiting: all.find((entry) => entry.answer === null)?.question ?? null,
+    };
+  } catch {
+    return { messages: [], waiting: null };
+  }
+}
+
+/** Ending a chat (× in the drawer, "End chat" on the page) forgets it. */
+export function endChat(empId: string) {
+  try {
+    sessionStorage.removeItem(storageKey(empId));
+  } catch {}
+}
+
 function provenanceLabel(provenance: string) {
   if (provenance === "grounded" || provenance === "grounded_inference") return "based on company records";
   if (provenance === "profile_inference") return "based on their role";
@@ -41,27 +66,26 @@ export default function ChatPanel({
   variant,
   initialQuestion = "",
   onClose,
+  onEnd,
 }: {
   person: ChatPerson;
   color?: string;
   variant: "drawer" | "page";
   initialQuestion?: string;
+  /** Close the drawer; the conversation is kept unless it is ended. */
   onClose?: () => void;
+  /** End the conversation on the full page. */
+  onEnd?: () => void;
 }) {
-  const [question, setQuestion] = useState(initialQuestion);
-  const [conversation, setConversation] = useState<Message[]>([]);
+  // The saved thread is read once, as the starting state, so nothing can
+  // save an empty thread over it first (e.g. a remount). This panel only
+  // renders in the browser, after data has loaded, so storage is available.
+  const [saved] = useState(() => readThread(person.empId));
+  const [question, setQuestion] = useState(saved.waiting ?? initialQuestion);
+  const [conversation, setConversation] = useState<Message[]>(saved.messages);
   const [asking, setAsking] = useState(false);
   const threadEnd = useRef<HTMLDivElement>(null);
   const firstName = person.name.split(" ")[0];
-
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem(storageKey(person.empId));
-      // Restoring a thread kept in this browser session.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (saved) setConversation((JSON.parse(saved) as Message[]).filter((entry) => entry.answer !== null));
-    } catch {}
-  }, [person.empId]);
 
   useEffect(() => {
     try {
@@ -136,7 +160,29 @@ export default function ChatPanel({
             </Link>
           )}
           {variant === "drawer" && onClose && (
-            <button onClick={onClose} className="close-button" aria-label="Close chat">×</button>
+            <button
+              onClick={() => {
+                endChat(person.empId);
+                onClose();
+              }}
+              className="close-button"
+              aria-label="Close and end chat"
+              title="Close and end chat"
+            >
+              ×
+            </button>
+          )}
+          {variant === "page" && onEnd && (
+            <button
+              onClick={() => {
+                endChat(person.empId);
+                onEnd();
+              }}
+              className="ghost-button"
+              title="End this conversation"
+            >
+              End chat
+            </button>
           )}
         </div>
       </header>

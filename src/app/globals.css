@@ -783,3 +783,54 @@ input, button { font-size: 0.9375rem; }
 .login-submit:disabled { opacity: .6; }
 :root[data-theme="dark"] .login-submit { background: var(--accent); color: #07110c; }
 }
+
+/* ---------- Login: brand panel + form ---------- */
+@layer components {
+.login-layout {
+  position: relative; display: grid; width: min(980px, 100%);
+  grid-template-columns: 1.1fr .9fr; align-items: center; gap: 3rem;
+}
+.login-brand { padding: 1rem 0; color: var(--ink); animation: reveal 500ms cubic-bezier(.2,.8,.2,1) both; }
+.login-promise { margin-top: 1.6rem; max-width: 26rem; font-family: Georgia, serif; font-size: clamp(2rem, 3.4vw, 2.8rem); line-height: 1.08; letter-spacing: -.035em; }
+.login-features { margin-top: 2rem; display: grid; gap: 1.1rem; }
+.login-features li { display: flex; gap: .9rem; align-items: flex-start; }
+.login-features li > span:last-child { display: flex; flex-direction: column; gap: .15rem; }
+.login-features strong { font-size: .95rem; }
+.login-features li > span:last-child > span { color: var(--muted); font-size: .86rem; line-height: 1.5; }
+.login-feature-icon {
+  display: grid; width: 38px; height: 38px; flex-shrink: 0; place-items: center; border-radius: 12px;
+  background: color-mix(in srgb, var(--paper) 80%, transparent); border: 1px solid var(--line); color: var(--accent);
+}
+.login-features li:nth-child(3) .login-feature-icon { color: var(--brand-2); }
+.login-foot { margin-top: 2rem; border-top: 1px dashed var(--line); padding-top: 1rem; color: var(--muted); font-size: .78rem; }
+.login-layout .login-card { justify-self: end; }
+@media (max-width: 860px) {
+  .login-layout { grid-template-columns: 1fr; gap: 1.5rem; max-width: 420px; }
+  .login-layout .login-card { justify-self: stretch; }
+  .login-features, .login-foot { display: none; }
+  .login-promise { margin-top: 1rem; font-size: 1.8rem; }
+  .login-screen { overflow-y: auto; align-content: start; padding-top: 2.5rem; }
+}
+}
+
+@layer components {
+.login-password { position: relative; display: block; }
+.login-password input { padding-right: 2.8rem; }
+.login-password button {
+  position: absolute; top: 50%; right: .45rem; display: grid; width: 2rem; height: 2rem; place-items: center;
+  transform: translateY(-50%); border-radius: .55rem; color: var(--muted);
+}
+.login-password button:hover, .login-password button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+}
+
+/* The brief opens like a dialog: a dimmed backdrop around the A4 page. */
+@layer components {
+.report-shell {
+  position: fixed; inset: 0; z-index: 55; overflow-y: auto; cursor: zoom-out;
+  background: color-mix(in srgb, #0b0f0d 55%, transparent); backdrop-filter: blur(3px);
+  padding: 1.5rem 1rem 3rem;
+}
+.report-shell .report-page, .report-shell .report-toolbar { cursor: auto; }
+.report-toolbar { border-radius: .9rem; background: var(--paper); padding: .6rem .9rem; }
+@media print { .report-shell { position: static; background: none; backdrop-filter: none; padding: 0; overflow: visible; } }
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Logo from "@/components/Logo";
 import PageLoader from "@/components/PageLoader";
 
@@ -44,6 +45,18 @@ const STATUS: Record<string, string> = { act: "Needs you", watch: "Keep an eye",
 export default function ReportView() {
   const [data, setData] = useState<{ brief: Brief; areas: Area[]; checkedAt: string | null; flags: Flag[]; people: Person[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (window.history.length > 1) router.back();
+        else router.push("/");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router]);
 
   useEffect(() => {
     Promise.all([
@@ -65,6 +78,12 @@ export default function ReportView() {
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "The brief couldn't be loaded."));
   }, []);
 
+  // Close: back to wherever the brief was opened from, or the overview.
+  function close() {
+    if (window.history.length > 1) router.back();
+    else router.push("/");
+  }
+
   if (error) return <main className="mx-auto max-w-3xl p-8 text-sm text-[var(--muted)]">{error}</main>;
   if (!data) return <PageLoader fullScreen lines={["Preparing the brief", "Laying out the pages"]} />;
 
@@ -73,10 +92,20 @@ export default function ReportView() {
   const good = areas.filter((area) => area.status === "good");
 
   return (
-    <div className="report-shell">
+    // Clicking the backdrop (anywhere outside the page and toolbar) closes the
+    // preview, like a dialog.
+    <div
+      className="report-shell"
+      onClick={(event) => {
+        if (!(event.target as HTMLElement).closest(".report-page, .report-toolbar")) close();
+      }}
+    >
       <div className="report-toolbar print:hidden">
         <p className="text-sm text-[var(--muted)]">A4 document. Use “Download PDF”, then choose “Save as PDF”.</p>
-        <button type="button" className="talk-button" onClick={() => window.print()}>Download PDF</button>
+        <span className="flex items-center gap-2">
+          <button type="button" className="talk-button" onClick={() => window.print()}>Download PDF</button>
+          <button type="button" className="ghost-button" onClick={close}>Close</button>
+        </span>
       </div>
 
       <article className="report-page">

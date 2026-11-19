@@ -141,6 +141,12 @@ export default function AppNav() {
               aria-label="Sign out"
               onClick={async () => {
                 await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+                // Signing out also forgets any open conversations.
+                try {
+                  Object.keys(sessionStorage)
+                    .filter((key) => key.startsWith("veloxa-chat-"))
+                    .forEach((key) => sessionStorage.removeItem(key));
+                } catch {}
                 // A full load (not client navigation) clears every in-memory view.
                 // eslint-disable-next-line @next/next/no-location-assign-relative-destination
                 window.location.href = "/login";

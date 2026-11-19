@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import ChatPanel, { type ChatPerson } from "@/components/people/ChatPanel";
 import PageLoader from "@/components/PageLoader";
 import { areaColor } from "@/components/pills";
@@ -12,6 +12,7 @@ type Person = ChatPerson & { isPersona?: boolean; isActive: boolean; status: str
 /** Full-page chat: the conversation, plus everyone else you can talk to. */
 export default function ChatPage() {
   const params = useParams<{ employeeKey: string }>();
+  const router = useRouter();
   const [people, setPeople] = useState<Person[] | null>(null);
 
   useEffect(() => {
@@ -51,7 +52,13 @@ export default function ChatPage() {
       </aside>
       <section className="chat-page-panel">
         {person ? (
-          <ChatPanel key={person.empId} person={person} color={areaColor(person.department, departments)} variant="page" />
+          <ChatPanel
+            key={person.empId}
+            person={person}
+            color={areaColor(person.department, departments)}
+            variant="page"
+            onEnd={() => router.push("/people")}
+          />
         ) : (
           <p className="p-8 text-sm text-[var(--muted)]">
             That person isn&apos;t someone you can chat with here. Pick someone from the list.
