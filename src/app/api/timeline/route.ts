@@ -1,28 +1,16 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { friendlySourceTitle } from "@/lib/evidence/snippet";
+import { asOfFromRequest } from "@/lib/time/as-of";
+import { loadDocuments } from "@/lib/time/documents";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const supabase = createServerSupabaseClient();
-    const asOf = new Date().toISOString();
-    const { data, error } = await supabase
-      .from("source_documents")
-      .select("id, title, source_type, release_day, available_at, metadata")
-      .lte("available_at", asOf)
-      .order("available_at", { ascending: false });
-
-    if (error) throw new Error(error.message);
-    return Response.json({
-      sources: (data ?? []).map((source) => ({
-        ...source,
-        title: friendlySourceTitle(source.title),
-      })),
-    });
+    const asOf = asOfFromRequest(request);
+    const sources = await loadDocuments(createServerSupabaseClient(), asOf.at);
+    // Newest by the document's own date first.
+    sources.sort((left, right) => right.effectiveDate.localeCompare(left.effectiveDate));
+    return Response.json({ asOf: asOf.day, sources });
   } catch (error) {
     console.error("Timeline data query failed", error);
-    return Response.json(
-      { error: "Unable to load the evidence timeline." },
-      { status: 502 },
-    );
+    return Response.json({ error: "Unable to load the documents." }, { status: 502 });
   }
 }

@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { analyzeEvidence, filterEvidenceAsOf, riskFingerprint } from "@/lib/analysis/risk";
 import { analyzeCorpus } from "@/lib/analysis/corpus";
+import { correctNames } from "@/lib/people/names";
 import { loadDirectory, personFacts } from "@/lib/people/directory";
 import { loadAnalysisEvidence } from "@/lib/analysis/evidence";
 
@@ -108,7 +109,20 @@ export async function POST() {
     }
     const findings = [...byTitle.values()];
     const activeFingerprints = new Set<string>();
-    for (const finding of findings) activeFingerprints.add(await saveFinding(supabase, finding));
+    // Names in generated text use the directory's spelling ("Pria" → Priya).
+    const firstNames = people.map((person) => person.name.split(" ")[0]);
+    const fix = (text: string | undefined) => (text ? correctNames(text, firstNames) : text);
+    for (const finding of findings) {
+      Object.assign(finding, {
+        title: fix(finding.title),
+        description: fix(finding.description),
+        observed: fix(finding.observed),
+        inference: fix(finding.inference),
+        recommended_action: fix(finding.recommended_action),
+        rationale: Object.fromEntries(Object.entries(finding.rationale).map(([id, why]) => [id, fix(why)])),
+      });
+      activeFingerprints.add(await saveFinding(supabase, finding));
+    }
 
     // Anything from an earlier analysis that this run no longer supports is closed.
     const previous = await supabase

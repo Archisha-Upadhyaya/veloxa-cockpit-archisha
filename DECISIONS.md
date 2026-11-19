@@ -448,3 +448,42 @@ history silently.
     never re-read.
 -   **Trade-off:** Re-ingesting replaces evidence rows, so concern evidence
     links are rebuilt by the next analysis run.
+
+## D-034 --- Time machine: view the company as of any day (19 Nov 2026)
+
+-   **Decision:** A date picker (release days, a strip of dated documents,
+    or any day) sets a cookie; every API reads it (or `?asOf=`). A past day
+    means "as known at the end of that day (IST)": documents received by
+    then; concerns only if every supporting record had been received;
+    people who had joined and not yet left; leave from the leave register;
+    exported HR statuses only from the export date; CEO-reported statuses
+    from the day reported. Saved checks show the last one run on or before
+    the day.
+-   **Rationale:** The CEO asked to see the state of the company on a
+    specific date without hindsight.
+-   **Trade-off:** Concerns come from the latest analysis, filtered by date;
+    a past day shows today's wording of findings that were already knowable,
+    not a re-run of the analysis as it would have read then.
+
+## D-035 --- "What changed" uses the dates documents carry (19 Nov 2026)
+
+-   **Decision:** Each document's own date (email Date header, "exported /
+    sent …" phrases, else the first full date in prose) is shown; the day it
+    entered the system is used only when it has none. Table rows' dates are
+    never taken as the document date.
+
+## D-036 --- Look and feel (19 Nov 2026)
+
+-   **Decision:** Light/dark/system theme (no flash, remembered per
+    browser) with brighter status colours in dark mode; a saffron second
+    accent for urgency and time travel; a bottom tab bar on phones; a
+    branded loader; the Veloxa mark built on Tabler's MIT "letter-v" icon
+    (`THIRD_PARTY_NOTICES.md`); chat as a drawer with "open full page"
+    (`/chat/[id]`, same conversation); an A4 printable brief at `/report`.
+
+## D-037 --- Names follow the directory; syncs re-run the analysis (19 Nov 2026)
+
+-   **Decision:** Variant spellings of first names in generated text are
+    corrected to the directory ("Pria" → Priya, "Snehal" → Sneha, "Ayesha"
+    → Aisha), and count towards persona presence. A sync that changes files
+    embeds them and re-runs the analysis in the background (`after()`).

@@ -1,3 +1,5 @@
+import type React from "react";
+
 const AREA_PALETTE = ["#2f5f54", "#8a5a2b", "#5b4b8a", "#a0453f", "#2c6a8f", "#7a6a1f", "#6b3f6b", "#3f6b3f"];
 
 /** Stable colour per department, based on its position in the stored list. */
@@ -13,7 +15,7 @@ export function SeverityPill({ severity }: { severity: string }) {
 export function AreaPill({ area, all }: { area: string; all: string[] }) {
   const color = areaColor(area, all);
   return (
-    <span className="area-pill" style={{ color, borderColor: `${color}55`, background: `${color}12` }}>
+    <span className="area-pill" style={{ "--area": color } as React.CSSProperties}>
       {area}
     </span>
   );

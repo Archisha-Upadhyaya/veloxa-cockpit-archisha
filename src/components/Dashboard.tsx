@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import Link from "next/link";
@@ -22,18 +23,23 @@ type Finding = {
   confidence?: string | null;
   evidence_count?: number | null;
 };
-type Source = { id: string; title: string; source_type: string; release_day: string };
+type Source = { id: string; title: string; source_type: string; effectiveDate: string; dateIsFromDocument: boolean; available_at: string };
 type Brief = {
+  asOf: string;
+  historical: boolean;
   ceo: { name: string; title: string } | null;
-  stats: { people: number; evidence: number; sources: number; departments: Record<string, number> };
+  stats: { people: number; sources: number; departments: Record<string, number> };
   concerns: Finding[];
   positives: Finding[];
-  latestDay: string | null;
-  newSources: Source[];
+  changes: { since: string; dated: Source[]; received: Source[]; people: string[] };
   lastAnalysis: { at: string; model: string | null } | null;
   briefStale?: boolean;
 };
-type Person = { empId: string; name: string; title: string; department: string; isActive: boolean };
+
+/** "18 Nov", with the year only when it differs from the year being viewed. */
+const shortDate = (day: string, viewedYear?: string) =>
+  new Date(`${day.slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: !viewedYear || day.slice(0, 4) === viewedYear ? undefined : "numeric" });
+type Person = { empId: string; name: string; title: string; department: string; isActive: boolean; level?: number; status?: string };
 type AskSource = { n: number; id: string; summary: string; source: string; date: string | null };
 /** answer is null while the reply is on its way. */
 type AskTurn = { question: string; answer: string | null; sources: AskSource[]; mode?: string };
@@ -223,8 +229,8 @@ export default function Dashboard() {
             ? "Your brief hasn't been built from the latest documents yet"
             : "Nothing urgent on your desk",
         brief.positives.length ? `${brief.positives.length} going well` : null,
-        brief.newSources.length && brief.latestDay
-          ? `${brief.newSources.length} ${brief.newSources.length === 1 ? "document" : "documents"} added on ${new Date(`${brief.latestDay}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
+        brief.changes.received.length
+          ? `${brief.changes.received.length} new ${brief.changes.received.length === 1 ? "document" : "documents"} since yesterday`
           : null,
       ].filter(Boolean).join(" · ")
     : "Putting your brief together…";
@@ -234,15 +240,25 @@ export default function Dashboard() {
       {/* Greeting */}
       <section className="reveal">
         <p className="font-mono text-[11px] uppercase tracking-[.18em] text-[var(--muted)]">
-          {now ? now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }) : "\u00a0"}
-          {brief?.lastAnalysis && (
+          {brief.historical
+            ? `${new Date(`${brief.asOf}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })} · as known that day`
+            : now ? now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }) : "\u00a0"}
+          {brief?.lastAnalysis && !brief.historical && (
             <> · brief updated {new Date(brief.lastAnalysis.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</>
           )}
         </p>
         <h1 className="mt-1 font-serif text-3xl tracking-[-.03em] sm:text-4xl">
           {now ? greeting(now) : "Hello"}{firstName ? `, ${firstName}` : ""}.
         </h1>
-        <p className="mt-2 text-base text-[var(--muted)]">{summaryLine}</p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-base text-[var(--muted)]">{summaryLine}</p>
+          <Link href="/report" className="ghost-button inline-flex items-center gap-1.5">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M14 3v4a1 1 0 0 0 1 1h4M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2zM12 11v6M9 14l3 3l3 -3" />
+            </svg>
+            Brief as PDF
+          </Link>
+        </div>
       </section>
 
       {/* Stat row — full counts */}
@@ -279,7 +295,7 @@ export default function Dashboard() {
         <Link href="/sources" className="stat-card stat-sources">
           <span className="stat-label">Documents</span>
           <span className="stat-value">{brief ? brief.stats.sources : "—"}</span>
-          <span className="stat-note">{brief?.newSources.length ? `${brief.newSources.length} new` : "all read"} →</span>
+          <span className="stat-note">{brief?.changes.received.length ? `${brief.changes.received.length} new since yesterday` : "nothing new since yesterday"} →</span>
         </Link>
       </section>
 
@@ -305,8 +321,8 @@ export default function Dashboard() {
           {brief?.briefStale && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--warning)] bg-[var(--warn-soft)] p-5 lg:col-span-3">
               <p className="text-sm">
-                {brief.newSources.length
-                  ? `${brief.newSources.length} new ${brief.newSources.length === 1 ? "document has" : "documents have"} arrived since this brief was built.`
+                {brief.changes.received.length
+                  ? `${brief.changes.received.length} new ${brief.changes.received.length === 1 ? "document has" : "documents have"} arrived since this brief was built.`
                   : "This brief hasn't been built yet."}
                 {top.length > 0 ? " The concerns below may be out of date." : ""}
               </p>
@@ -460,7 +476,7 @@ export default function Dashboard() {
                 : "How each part of the business is doing: clients, money, delivery, people. Run it when you want the full picture."}
             </p>
           </div>
-          <button onClick={runHealthCheck} disabled={checking} className="talk-button">
+          <button onClick={runHealthCheck} disabled={checking} className={`talk-button ${brief.historical ? "hidden" : ""}`}>
             {checking ? "Checking… (up to a minute)" : health ? "Check again" : "Run health check"}
           </button>
         </div>
@@ -501,35 +517,65 @@ export default function Dashboard() {
         )}
       </section>
 
-      {/* New today + teams */}
-      <section className="reveal reveal-delay-2 mt-12 mb-8 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
-          <p className="section-eyebrow text-[var(--accent)]">{brief?.latestDay ? `Added on ${new Date(`${brief.latestDay}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : "Latest documents"}</p>
-          <ul className="mt-3 divide-y divide-[var(--line)]">
-            {(brief?.newSources ?? []).slice(0, 6).map((source) => (
-              <li key={source.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <span className="truncate">{source.title}</span>
-                <span className="type-pill">{source.source_type}</span>
-              </li>
-            ))}
-            {brief && brief.newSources.length === 0 && <li className="py-2 text-sm text-[var(--muted)]">Nothing new.</li>}
+      {/* What changed + teams: two equal columns */}
+      <section className="reveal reveal-delay-2 mt-12 mb-8 grid gap-4 lg:grid-cols-2">
+        <div className="flex flex-col rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
+          <p className="section-eyebrow text-[var(--brand-2)]">What changed since yesterday</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            {shortDate(brief.changes.since, brief.asOf.slice(0, 4))} – {shortDate(brief.asOf, brief.asOf.slice(0, 4))} · dates are those written in each document
+          </p>
+          {brief.changes.people.length > 0 && (
+            <ul className="mt-4 space-y-1.5">
+              {brief.changes.people.map((change) => (
+                <li key={change} className="change-person">{change}</li>
+              ))}
+            </ul>
+          )}
+          <ul className="mt-4 divide-y divide-[var(--line)]">
+            {[...brief.changes.dated, ...brief.changes.received.filter((doc) => !brief.changes.dated.some((dated) => dated.id === doc.id))]
+              .slice(0, 5)
+              .map((source) => (
+                <li key={source.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <span className="truncate">{source.title}</span>
+                  <span className="type-pill shrink-0">
+                    {source.dateIsFromDocument ? `dated ${shortDate(source.effectiveDate, brief.asOf.slice(0, 4))}` : "new · undated"}
+                  </span>
+                </li>
+              ))}
+            {brief.changes.received.length === 0 && brief.changes.dated.length === 0 && (
+              <li className="py-2 text-sm text-[var(--muted)]">No new documents since yesterday.</li>
+            )}
           </ul>
+          {brief.changes.received.length > 5 && (
+            <Link href="/sources" className="mt-auto pt-3 text-xs font-semibold text-[var(--accent)] hover:underline">
+              +{brief.changes.received.length - 5} more in Documents →
+            </Link>
+          )}
         </div>
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
+
+        <div className="flex flex-col rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-6">
           <p className="section-eyebrow text-[var(--accent)]">Your teams</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {departments.map((name) => (
-              <Link
-                key={name}
-                href={`/people?department=${encodeURIComponent(name)}`}
-                className="team-chip"
-                style={{ borderColor: areaColor(name, departments) }}
-              >
-                <span className="team-dot" style={{ background: areaColor(name, departments) }} />
-                {name}
-                <span className="text-[var(--muted)]">{brief?.stats.departments[name]}</span>
-              </Link>
-            ))}
+          <p className="mt-1 text-xs text-[var(--muted)]">Headcount, open concerns and who leads each team.</p>
+          <div className="mt-4 grid flex-1 gap-2 sm:grid-cols-2">
+            {departments.map((name) => {
+              const open = brief.concerns.filter((concern) => concern.area === name).length;
+              const members = people.filter((person) => person.department === name && person.isActive);
+              const lead = [...members].sort((left, right) => (left.level ?? 9) - (right.level ?? 9))[0];
+              const away = members.filter((person) => person.status && person.status !== "Active").length;
+              return (
+                <Link key={name} href={`/people?department=${encodeURIComponent(name)}`} className="team-card" style={{ "--area": areaColor(name, departments) } as React.CSSProperties}>
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-sm font-semibold"><span className="team-dot" style={{ background: areaColor(name, departments) }} />{name}</span>
+                    <span className="font-serif text-xl">{brief.stats.departments[name]}</span>
+                  </span>
+                  <span className="mt-1 block truncate text-xs text-[var(--muted)]">{lead ? `Led by ${lead.name}` : " "}</span>
+                  <span className="mt-2 flex flex-wrap gap-1">
+                    <span className={open ? "sev-pill sev-pill-high" : "pill-good"}>{open ? `${open} open ${open === 1 ? "concern" : "concerns"}` : "no open concerns"}</span>
+                    {away > 0 && <span className="sev-pill sev-pill-medium">{away} away / leaving</span>}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         </div>
       </section>

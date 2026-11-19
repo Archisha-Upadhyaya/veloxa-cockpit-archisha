@@ -30,3 +30,20 @@ describe("employee master parsing", () => {
     expect(leaver?.exitDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
+
+import { parseLeaveRegister } from "@/lib/ingestion/people";
+
+describe("leave register parsing", () => {
+  const people = parseEmployeeMaster(readFileSync(master)).map((record) => ({ key: record.employeeKey, name: record.name }));
+  const leave = parseLeaveRegister(
+    readFileSync(path.join(process.cwd(), "Veloxa_Hackathon_Release_Packs/Day2_Tue_17Nov/data_room/hr/Leave_Register.xlsx")),
+    people,
+  );
+
+  it("matches short names like 'P. Nair' to the directory", () => {
+    expect(leave.get("VX007")?.length).toBe(6); // Priya: 1 casual + 5 half days in Sep
+    expect(leave.get("VX014")).toEqual([{ from: "2026-02-09", to: "2026-02-27", days: 15 }]); // Fatima
+    // Every row of the register is matched to someone.
+    expect([...leave.values()].flat().length).toBe(19);
+  });
+});

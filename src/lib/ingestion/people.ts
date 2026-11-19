@@ -3,6 +3,7 @@ import path from "node:path";
 import * as XLSX from "xlsx";
 import type { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { ParsedFile } from "@/lib/ingestion/files";
+import { documentDate } from "@/lib/time/document-date";
 
 type SupabaseClient = ReturnType<typeof createServerSupabaseClient>;
 
@@ -76,6 +77,49 @@ export function parseEmployeeMaster(buffer: Buffer): EmployeeRecord[] {
   return records;
 }
 
+export type LeavePeriod = { from: string; to: string; days: number | null };
+
+/**
+ * Parse a leave register: rows of employee, from, to. The employee column may
+ * use short forms ("A. Das"); they are matched to full names by first initial
+ * and surname. Leave type is deliberately not kept: the cockpit only needs to
+ * know someone was away, not why.
+ */
+export function parseLeaveRegister(buffer: Buffer, names: Array<{ key: string; name: string }>) {
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const byKey = new Map<string, LeavePeriod[]>();
+  const match = (label: string) => {
+    const clean = label.replace(/\./g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    const [first, ...rest] = clean.split(" ");
+    const surname = rest.join(" ");
+    return names.find((person) => {
+      const parts = person.name.toLowerCase().split(/\s+/);
+      const personSurname = parts.slice(1).join(" ");
+      if (person.name.toLowerCase() === clean) return true;
+      return surname && personSurname === surname && parts[0].startsWith(first);
+    });
+  };
+  for (const sheetName of workbook.SheetNames) {
+    const grid = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, raw: false, blankrows: false });
+    const headerIndex = grid.findIndex((row) => row.some((value) => /^employee$/i.test(String(value ?? "").trim())));
+    if (headerIndex < 0) continue;
+    const header = grid[headerIndex].map((value) => String(value ?? "").trim().toLowerCase());
+    const col = (name: string) => header.findIndex((value) => value === name);
+    const [employee, from, to, days] = [col("employee"), col("from"), col("to"), col("days")];
+    if (employee < 0 || from < 0) continue;
+    for (const row of grid.slice(headerIndex + 1)) {
+      const person = match(String(row[employee] ?? ""));
+      const start = String(row[from] ?? "").slice(0, 10);
+      if (!person || !/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
+      const end = String(row[to] ?? "").slice(0, 10);
+      const list = byKey.get(person.key) ?? [];
+      list.push({ from: start, to: /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : start, days: days >= 0 ? Number(row[days]) || null : null });
+      byKey.set(person.key, list);
+    }
+  }
+  return byKey;
+}
+
 export function findEmployeeMaster(files: ParsedFile[]) {
   return files
     .filter((file) => /employee[_\s-]*master/i.test(path.basename(file.relativePath)))
@@ -91,6 +135,15 @@ export async function syncEmployees(supabase: SupabaseClient, files: ParsedFile[
   const master = findEmployeeMaster(files);
   if (!master) return { source: null, upserted: 0, deactivated: 0 };
   const records = parseEmployeeMaster(await fs.readFile(master.absolutePath));
+  const leaveFile = files
+    .filter((file) => /leave[_\s-]*register/i.test(path.basename(file.relativePath)))
+    .sort((left, right) => right.availableAt.localeCompare(left.availableAt))[0];
+  const leave = leaveFile
+    ? parseLeaveRegister(
+        await fs.readFile(leaveFile.absolutePath),
+        records.map((record) => ({ key: record.employeeKey, name: record.name })),
+      )
+    : new Map<string, LeavePeriod[]>();
   const today = new Date().toISOString().slice(0, 10);
 
   // CEO-reported status (e.g. a resignation the HR export does not show yet)
@@ -115,6 +168,11 @@ export async function syncEmployees(supabase: SupabaseClient, files: ParsedFile[
           joined: record.joined,
           location: record.location,
           status: left ? "Exited" : record.status,
+          // The HR status as exported, so past dates can show it as it was,
+          // and the export date: the status is only known from that day on.
+          hrStatus: record.status,
+          hrExportedOn: documentDate(master.text) ?? master.releaseDay,
+          leave: leave.get(record.employeeKey) ?? [],
           exitDate: record.exitDate,
           managerKey: record.managerKey,
           source: {

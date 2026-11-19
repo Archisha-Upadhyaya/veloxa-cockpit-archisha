@@ -1,10 +1,12 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { asOfFromRequest } from "@/lib/time/as-of";
 import { generateGroundedAnswer } from "@/lib/ai/gemini";
 import { EMPLOYEE_CHAT_SYSTEM } from "@/lib/ai/prompts";
 import { defaultMatchThreshold, embedTexts } from "@/lib/rag/embeddings";
 import { keywordEvidenceSearch, keywordTerms } from "@/lib/data/fallback";
 import { loadDirectory, personFacts } from "@/lib/people/directory";
 import { getPersona } from "@/lib/people/persona";
+import { correctNames } from "@/lib/people/names";
 import { addressCeoCorrectly } from "@/lib/people/address";
 import {
   dedupeEvidenceSummaries,
@@ -149,6 +151,7 @@ export async function POST(
     const { employeeKey } = await params;
     const body = (await request.json()) as ChatRequest;
     const question = body.question?.trim();
+    const viewing = asOfFromRequest(request);
     if (!question) {
       return Response.json({ error: "question is required" }, { status: 400 });
     }
@@ -222,7 +225,7 @@ export async function POST(
             query_embedding: vector,
             match_threshold: Math.min(defaultMatchThreshold(), 0.42),
             match_count: 8,
-            as_of: new Date().toISOString(),
+            as_of: viewing.at.toISOString(),
           });
           if (result.error) throw new Error(result.error.message);
           for (const item of (result.data ?? []) as EvidenceRow[]) {
@@ -256,7 +259,7 @@ export async function POST(
       .from("evidence_items")
       .select("evidence_text, source_locations(source_documents(title, relative_path))")
       .eq("is_sensitive", false)
-      .lte("available_at", new Date().toISOString())
+      .lte("available_at", viewing.at.toISOString())
       .or(nameTerms.map((term: string) => `evidence_text.ilike.%${term.replace(/[%,()]/g, "")}%`).join(","))
       .limit(12);
     const firsthand = ((named.data ?? []) as unknown as Array<{
@@ -269,7 +272,7 @@ export async function POST(
       .slice(0, 6);
     // Facts come from the HR master (reporting line, tenure, status) and from
     // released evidence that names this person; nothing is scripted.
-    const directory = await loadDirectory(supabase);
+    const directory = await loadDirectory(supabase, viewing.at);
     const person = directory.find((entry) => entry.empId === data.employee_key);
     const groundedFacts = person
       ? [...personFacts(person), ...person.mentions.map((mention) => mention.summary)]
@@ -343,7 +346,7 @@ ${firstName}:`,
           ),
         );
         if (cleaned) {
-          answer = cleaned;
+          answer = correctNames(cleaned, directory.map((entry) => entry.name.split(" ")[0]));
           provenance = safeEvidence.length > 0 ? "grounded_inference" : "profile_inference";
         }
       } catch (error) {

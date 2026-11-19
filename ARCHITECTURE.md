@@ -748,3 +748,17 @@ failing.
     version in the content hash.
 -   **Ingestion scope:** default `Day1,Day2,Day3,Day4`; Day 4 adds no
     documents (voice notes only).
+
+### 16.8 Day 4 additions, part 2 (19 November 2026)
+
+-   **As-of** (`src/lib/time/as-of.ts`): cookie `veloxa_as_of` or
+    `?asOf=`; every read API filters by it. `findingsKnownAsOf` keeps only
+    findings whose records were all received by a past day; the directory
+    applies join/exit/leave/HR-export dates.
+-   **Document dates** (`src/lib/time/document-date.ts`,
+    `src/lib/time/documents.ts`): read from each document's first chunk.
+-   **Names** (`src/lib/people/names.ts`): conservative variant matching.
+-   **UI:** `AppNav` (desktop tabs, mobile tab bar, theme toggle,
+    `TimeMachine`), `PageLoader` + `Logo`, `ChatPanel` shared by drawer and
+    `/chat/[id]`, `ReportView` at `/report`.
+-   **Sync follow-up:** `after()` embeds changed files and re-runs analysis.

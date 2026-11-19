@@ -26,6 +26,12 @@ sentence a person can read, never a CSV row, a table, or a raw document chunk.
 - **Employee chat** — 14 personas, chosen by how much each person appears in
   the documents. Each has a voice generated from their own records, addresses
   the CEO by name, admits what they do not know, and never exposes pay.
+- **Time machine** — view the company as known at the end of any past day:
+  documents, concerns, who had joined, who was on leave or had left.
+- **Brief as PDF** — `/report`, an A4 document with letterhead, ready to save
+  as PDF.
+- **Dark mode and phones** — light/dark/system theme; bottom tab bar on
+  mobile.
 - **Reporting line and reorganisations** — the directory comes from the HR
   master's `Manager ID`; planned moves are dated changes that apply only when
   confirmed and safe (see `DECISIONS.md` D-027).
@@ -166,6 +172,7 @@ then `pnpm dev`.
 | `GET`/`POST /api/org-changes`, `PATCH /api/org-changes/[id]` | Reporting-line changes |
 | `GET`/`POST /api/retention-check` | Last saved / new retention watch: who to check in with and why (work records only) |
 | `POST`/`DELETE /api/people/[employeeKey]/report` | Record or clear a status the CEO reports (e.g. a resignation) before HR records show it |
+| any `GET` above with `?asOf=YYYY-MM-DD` | The same view as known at the end of that day (the time machine sets this as a cookie) |
 | `POST /api/retrieve` | Search returning deduplicated snippets (keyword fallback) |
 | `POST /api/sync` | Incremental release-pack ingestion |
 | `POST /api/embed` | Quota-safe embedding batches |

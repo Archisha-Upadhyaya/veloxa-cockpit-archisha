@@ -121,9 +121,50 @@ describe("chat personas", () => {
   });
 
   it("never makes someone who has left a persona", () => {
-    const rows = baseRows.map((row) => (row.employee_key === "VX013" ? { ...row, is_active: false } : row));
+    // "Left" is decided by the exit date as of the day viewed.
+    const rows = baseRows.map((row) =>
+      row.employee_key === "VX013" ? { ...row, profile: { ...(row.profile as object), exitDate: "2026-10-31" } } : row,
+    );
     const { people } = buildDirectory(rows, evidence, [], asOf);
     expect(people.find((person) => person.name === "Siddharth Mehta")!.isPersona).toBe(false);
     expect(people.filter((person) => person.isPersona)).toHaveLength(14);
+  });
+});
+
+describe("directory as of a date", () => {
+  const withDates = baseRows.map((row) => {
+    const record = records.find((entry) => entry.employeeKey === row.employee_key)!;
+    return {
+      ...row,
+      profile: {
+        ...(row.profile as object),
+        joined: record.joined,
+        exitDate: record.exitDate,
+        hrStatus: record.status,
+        leave: row.employee_key === "VX014" ? [{ from: "2026-02-09", to: "2026-02-27", days: 15 }] : [],
+      },
+    };
+  });
+
+  it("leaves out people who had not joined yet", () => {
+    // Rahul Verma joined 2026-02-03.
+    const before = buildDirectory(withDates, [], [], new Date("2026-01-15T12:00:00+05:30"));
+    expect(before.people.some((person) => person.name === "Rahul Verma")).toBe(false);
+    const after = buildDirectory(withDates, [], [], new Date("2026-03-01T12:00:00+05:30"));
+    expect(after.people.some((person) => person.name === "Rahul Verma")).toBe(true);
+  });
+
+  it("shows notice before the exit date and exited after it", () => {
+    const during = buildDirectory(withDates, [], [], new Date("2026-10-20T12:00:00+05:30"));
+    const sid = during.people.find((person) => person.name === "Siddharth Mehta")!;
+    expect(sid.status).toBe("Notice period");
+    expect(sid.isActive).toBe(true);
+    const later = buildDirectory(withDates, [], [], new Date("2026-11-18T12:00:00+05:30"));
+    expect(later.people.find((person) => person.name === "Siddharth Mehta")!.status).toBe("Exited");
+  });
+
+  it("shows who was on leave that day", () => {
+    const onLeave = buildDirectory(withDates, [], [], new Date("2026-02-15T12:00:00+05:30"));
+    expect(onLeave.people.find((person) => person.name === "Fatima Sheikh")!.status).toBe("On leave");
   });
 });

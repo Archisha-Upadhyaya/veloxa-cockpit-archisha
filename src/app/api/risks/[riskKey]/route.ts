@@ -1,4 +1,5 @@
 import { selectRiskItems } from "@/lib/data/fallback";
+import { asOfFromRequest } from "@/lib/time/as-of";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { filterEvidenceAsOf } from "@/lib/analysis/risk";
 import { loadDirectory, ownerFor } from "@/lib/people/directory";
@@ -37,13 +38,14 @@ type EvidenceRow = {
 };
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ riskKey: string }> },
 ) {
   try {
     const { riskKey } = await context.params;
     const supabase = createServerSupabaseClient();
-    const asOf = new Date().toISOString();
+    const viewing = asOfFromRequest(request);
+    const asOf = viewing.at.toISOString();
     const riskResult = await selectRiskItems(
       "id, risk_key, title, description, observed, inference, recommended_action, polarity, area, owner_employee_key, severity, likelihood, status, confidence, origin, first_observed_at, last_reviewed_at",
       (select) =>
@@ -91,7 +93,7 @@ export async function GET(
     let evidence = await evidenceQuery(true);
     if (evidence.error?.code === "42703") evidence = await evidenceQuery(false);
     const resolvedOwner = ownerFor(
-      await loadDirectory(supabase),
+      await loadDirectory(supabase, viewing.at),
       risk.data.owner_employee_key,
       (risk.data as { area?: string | null }).area,
     );

@@ -2,7 +2,10 @@ import { selectRiskItems } from "@/lib/data/fallback";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { dedupeAndRankRisks } from "@/lib/analysis/risk";
 import { loadDirectory, ownerFor, realDepartments } from "@/lib/people/directory";
-import { friendlySourceTitle, humanizeConcernText } from "@/lib/evidence/snippet";
+import { humanizeConcernText } from "@/lib/evidence/snippet";
+import { asOfFromRequest } from "@/lib/time/as-of";
+import { loadDocuments } from "@/lib/time/documents";
+import { findingsKnownAsOf } from "@/lib/time/known";
 
 type RiskRow = {
   id: string;
@@ -26,28 +29,16 @@ type RiskRow = {
 const text = (value?: string | null) => (value ? humanizeConcernText(value) : null);
 
 /**
- * The CEO's morning brief. Everything is read from the database: the CEO is
- * whoever sits at the top of the HR master's reporting line.
+ * The CEO's morning brief, as of the day being viewed (today by default).
+ * Everything is read from the database: the CEO is whoever sits at the top
+ * of the reporting line on that day.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = createServerSupabaseClient();
-    const asOf = new Date().toISOString();
-    const [people, evidence, documents, risks, lastRun] = await Promise.all([
-      supabase
-        .from("employee_profiles")
-        .select("employee_key, display_name, role_title, department, is_active, profile"),
-      supabase
-        .from("evidence_items")
-        .select("id", { count: "exact", head: true })
-        .eq("is_sensitive", false)
-        .lte("available_at", asOf),
-      supabase
-        .from("source_documents")
-        .select("id, title, source_type, release_day, available_at")
-        .lte("available_at", asOf)
-        .order("available_at", { ascending: false })
-        .limit(40),
+    const asOf = asOfFromRequest(request);
+    const [documents, risks, lastRun, directory] = await Promise.all([
+      loadDocuments(supabase, asOf.at),
       selectRiskItems(
         "id, risk_key, title, description, observed, inference, recommended_action, polarity, area, owner_employee_key, severity, likelihood, confidence, evidence_count, origin, last_reviewed_at",
         (select) => supabase.from("risk_items").select(select).in("status", ["open", "watch"]).limit(60),
@@ -59,28 +50,15 @@ export async function GET() {
         .order("completed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      loadDirectory(supabase, asOf.at),
     ]);
-    for (const result of [people, evidence, documents]) {
-      if (result.error) throw new Error(result.error.message);
-    }
     if (risks.error) throw new Error(risks.error.message);
 
-    // Only findings whose evidence is released as of now.
     let rows = (risks.data ?? []) as unknown as RiskRow[];
-    if (rows.length > 0) {
-      const links = await supabase
-        .from("risk_evidence")
-        .select("risk_id, evidence_items!inner(available_at)")
-        .in("risk_id", rows.map((risk) => risk.id))
-        .lte("evidence_items.available_at", asOf);
-      if (links.error) throw new Error(links.error.message);
-      const current = new Set((links.data ?? []).map((link) => link.risk_id));
-      rows = rows.filter((risk) => current.has(risk.id));
-    }
-    // The CEO is the top of the reporting tree as of today (dated
-    // reporting-line changes applied), not a fixed id.
-    const directory = await loadDirectory(supabase);
-    const findingsRanked = dedupeAndRankRisks(
+    const known = await findingsKnownAsOf(supabase, rows.map((risk) => risk.id), asOf);
+    rows = rows.filter((risk) => known.has(risk.id));
+
+    const findings = dedupeAndRankRisks(
       rows.map((risk) => ({
         ...risk,
         title: humanizeConcernText(risk.title),
@@ -90,49 +68,64 @@ export async function GET() {
         recommended_action: text(risk.recommended_action),
         polarity: risk.polarity ?? "concern",
       })),
-    );
-
-    // Owners that have left or moved resolve to the current head of the area.
-    const findings = findingsRanked.map((finding) => ({
+    ).map((finding) => ({
       ...finding,
+      // Owners who have left or moved resolve to the current head of the area.
       owner_employee_key: ownerFor(directory, finding.owner_employee_key, finding.area)?.empId ?? null,
     }));
-    const activePeople = (people.data ?? []).filter((person) => person.is_active);
+
+    const active = directory.filter((person) => person.isActive);
     const ceo = directory.find((person) => person.level === 0 && person.isActive && person.reports.length > 0) ?? null;
     // Teams only: a "department" that is just the CEO is not a team.
     const teams = new Set(realDepartments(directory));
-    const departments = activePeople.reduce<Record<string, number>>((counts, person) => {
-      const name = person.department ?? "Unassigned";
-      if (teams.has(name)) counts[name] = (counts[name] ?? 0) + 1;
+    const departments = active.reduce<Record<string, number>>((counts, person) => {
+      if (teams.has(person.department)) counts[person.department] = (counts[person.department] ?? 0) + 1;
       return counts;
     }, {});
 
-    const sources = (documents.data ?? []).map((document) => ({
-      ...document,
-      title: friendlySourceTitle(document.title),
-    }));
-    const latestDay = sources[0]?.release_day ?? null;
+    // What changed since yesterday, dated by the documents themselves: things
+    // the documents date to yesterday or the viewed day, plus documents that
+    // arrived in that window (shown with their own dates).
+    const yesterday = new Date(new Date(`${asOf.day}T12:00:00+05:30`).getTime() - 86_400_000).toISOString().slice(0, 10);
+    const datedSinceYesterday = documents.filter(
+      (document) => document.dateIsFromDocument && document.effectiveDate >= yesterday && document.effectiveDate <= asOf.day,
+    );
+    const receivedSinceYesterday = documents.filter((document) => {
+      const received = new Date(new Date(document.available_at).getTime() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+      return received >= yesterday && received <= asOf.day;
+    });
+    const people = directory.filter((person) => person.isActive);
+    const peopleChanges = [
+      ...people.filter((person) => person.joined && person.joined >= yesterday && person.joined <= asOf.day).map((person) => `${person.name} joined`),
+      ...directory.filter((person) => person.exitDate && person.exitDate >= yesterday && person.exitDate < asOf.day && !person.reported).map((person) => `${person.name} left`),
+      ...people.filter((person) => person.reported && person.reported.reportedOn >= yesterday).map((person) => `${person.name}: ${person.status.toLowerCase()} (you reported)`),
+      ...people.filter((person) => person.status === "On leave").map((person) => `${person.name} is on leave`),
+    ];
 
     return Response.json({
+      asOf: asOf.day,
+      historical: asOf.historical,
       ceo: ceo ? { name: ceo.name, title: ceo.title } : null,
       stats: {
-        people: activePeople.length,
-        evidence: evidence.count ?? 0,
-        sources: sources.length,
+        people: active.length,
+        sources: documents.length,
         departments,
       },
       concerns: findings.filter((finding) => finding.polarity !== "positive"),
       positives: findings.filter((finding) => finding.polarity === "positive"),
-      latestDay,
-      newSources: sources.filter((source) => source.release_day === latestDay),
-      // The brief is out of date when documents arrived after the last
-      // successful analysis (or none has run yet).
+      changes: {
+        since: yesterday,
+        dated: datedSinceYesterday,
+        received: receivedSinceYesterday,
+        people: peopleChanges,
+      },
+      // Out of date only when viewing today and documents arrived after the
+      // last successful analysis.
       briefStale:
-        !lastRun.data?.completed_at ||
-        sources.some((source) => source.available_at && source.available_at > lastRun.data!.completed_at!),
-      lastAnalysis: lastRun.data
-        ? { at: lastRun.data.completed_at, model: lastRun.data.model_version }
-        : null,
+        !asOf.historical &&
+        (!lastRun.data?.completed_at ||
+          documents.some((document) => document.available_at > lastRun.data!.completed_at!)),
+      lastAnalysis: lastRun.data ? { at: lastRun.data.completed_at, model: lastRun.data.model_version } : null,
     });
   } catch (error) {
     console.error("Dashboard data query failed", error);

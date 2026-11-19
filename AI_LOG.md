@@ -343,6 +343,27 @@ view over a refusal; pages showed empty cards before data; the dev page on
 
 ---
 
+## AI-022 — Time machine, dark mode, mobile, PDF brief, names, logo
+
+**Work item (19 Nov):** CEO requests: date picker for historical views,
+"what changed" by document dates, dark mode, mobile nav, full-page chat,
+PDF brief, correct name spellings, automatic re-analysis, a real logo.
+
+- **Logo:** searched for licensed V marks; chose Tabler's "letter-v" (MIT,
+  verified licence file) and recorded it in `THIRD_PARTY_NOTICES.md`.
+- **Checked in headless Chrome:** light, dark, 390 px phone (no sideways
+  scroll, tab bar visible), 16 Nov view (10 documents, 1 concern, Siddharth
+  exited), chat page, A4 report with all sections.
+- **Caught and fixed before deploy:** two production-only prerender errors
+  (reading the clock in the time picker; reading the URL in the nav on a
+  dynamic route); low-contrast department pills and avatars in dark mode;
+  HR "Notice period" shown before the HR export date (hindsight); half-day
+  leave shown as "On leave".
+- **Verification:** 51 unit tests (names, document dates, leave register,
+  directory by date, reorgs, profiles); live API checks across four dates.
+
+---
+
 ## Ongoing AI-assisted workflow
 
 For subsequent work, entries will be added when AI materially contributes to analysis, code, tests or documentation. Each entry should record:

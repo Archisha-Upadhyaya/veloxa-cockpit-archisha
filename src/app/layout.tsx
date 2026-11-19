@@ -13,7 +13,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geist.variable} ${mono.variable}`}>
+    <html lang="en" className={`${geist.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head>
+        {/* Set the theme before first paint so there is no light flash. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem("veloxa-theme")||"system";var d=t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.dataset.theme=d?"dark":"light"}catch(e){}`,
+          }}
+        />
+      </head>
       <body>
         <AppNav />
         {children}

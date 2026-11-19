@@ -1,9 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import PageLoader from "@/components/PageLoader";
+import ChatPanel from "@/components/people/ChatPanel";
 
 type Reported = { status: string; reportedOn: string; expectedExit?: string | null; note?: string | null; source: string };
 type RetentionFlag = { empId: string; name: string; level: "check_in" | "urgent"; reasons: Array<{ text: string; source: string }>; suggestion: string };
@@ -53,34 +53,22 @@ type OrgChange = {
   affects: string[];
 };
 
-/** answer is null while the reply is on its way. */
-type Message = { question: string; answer: string | null; provenance: string };
 type SortMode = "hierarchy" | "name";
 
 function initials(name: string) {
   return name.split(" ").map((part) => part[0]).slice(0, 2).join("");
 }
 
-const PALETTE = ["var(--accent)", "#82684d", "#687c69", "#9a7958", "#5f6f86", "#8a5d6b", "#6b7a4f"];
+const PALETTE = ["#2f5f54", "#82684d", "#687c69", "#9a7958", "#5f6f86", "#8a5d6b", "#6b7a4f"];
 function departmentColor(department: string, all: string[]) {
   const index = all.indexOf(department);
   return PALETTE[(index < 0 ? 0 : index) % PALETTE.length];
 }
 
-function provenanceLabel(provenance: string) {
-  if (provenance === "grounded" || provenance === "grounded_inference") return "based on company records";
-  if (provenance === "profile_inference") return "based on their role";
-  if (provenance === "recorded_context") return "from an earlier conversation";
-  if (provenance === "policy_refusal") return "confidential";
-  if (provenance === "conversation") return "in conversation";
-  if (provenance === "no_visibility") return "outside their knowledge";
-  if (provenance === "no_record") return "no record";
-  return "unverified";
-}
 
 function statusTone(person: Person) {
   if (!person.isActive) return "bg-[var(--surface-2)] text-[var(--muted)]";
-  if (person.status !== "Active") return "bg-amber-100 text-amber-900";
+  if (person.status !== "Active") return "bg-[var(--warn-soft)] text-[var(--warning)]";
   return "bg-[var(--accent-soft)] text-[var(--accent)]";
 }
 
@@ -99,12 +87,8 @@ export default function PeopleDirectory() {
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string>();
   const [chatId, setChatId] = useState<string | undefined>(initialChat);
-  const [question, setQuestion] = useState(
-    initialTopic ? `I wanted to talk to you about ${initialTopic.charAt(0).toLowerCase()}${initialTopic.slice(1)}.` : "",
-  );
-  const [conversation, setConversation] = useState<Message[]>([]);
-  const [asking, setAsking] = useState(false);
-  const threadEnd = useRef<HTMLDivElement>(null);
+  // Opened from a concern: start the chat with the topic already written.
+  const question = initialTopic ? `I wanted to talk to you about ${initialTopic.charAt(0).toLowerCase()}${initialTopic.slice(1)}.` : "";
   const [changes, setChanges] = useState<OrgChange[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [editingChange, setEditingChange] = useState<string | null>(null);
@@ -205,9 +189,6 @@ export default function PeopleDirectory() {
     }
   }
 
-  useEffect(() => {
-    threadEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [conversation, asking]);
 
   function chooseDepartment(value: string) {
     setDepartment(value);
@@ -255,51 +236,6 @@ export default function PeopleDirectory() {
 
   function openChat(person: Person) {
     setChatId(person.empId);
-    setConversation([]);
-    setQuestion("");
-  }
-
-  async function ask(event: FormEvent) {
-    event.preventDefault();
-    if (!chatPerson || !question.trim() || asking) return;
-    const currentQuestion = question.trim();
-    setQuestion("");
-    setAsking(true);
-    // Show the CEO's message immediately; the reply fills in when it arrives.
-    const history = conversation
-      .filter((entry) => entry.answer !== null)
-      .slice(-6)
-      .map((entry) => ({ question: entry.question, answer: entry.answer as string }));
-    setConversation((current) => [...current, { question: currentQuestion, answer: null, provenance: "pending" }]);
-    const settle = (answer: string, provenance: string) =>
-      setConversation((current) =>
-        current.map((entry, index) =>
-          index === current.length - 1 && entry.answer === null ? { ...entry, answer, provenance } : entry,
-        ),
-      );
-    try {
-      const response = await fetch(`/api/people/${chatPerson.empId}/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          question: currentQuestion,
-          history,
-        }),
-      });
-      const result = await response.json();
-      settle(
-        result.response?.answer ??
-          (result.response?.provenance === "no_record"
-            ? `Nothing on record answers that for ${chatPerson.name}.`
-            : result.error ?? "No response came back. Try asking again."),
-        result.response?.provenance ?? "no_visibility",
-      );
-    } catch (reason) {
-      console.error("Employee chat request failed", reason);
-      settle("I couldn't reach the server. Try again in a moment.", "no_visibility");
-    } finally {
-      setAsking(false);
-    }
   }
 
   // The page appears only once people and the retention check are both in.
@@ -739,56 +675,14 @@ export default function PeopleDirectory() {
             aria-label={`Chat with ${chatPerson.name}`}
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <header className="chat-header">
-              <div className="flex min-w-0 items-center gap-3">
-                <span
-                  className="person-avatar"
-                  style={{ backgroundColor: departmentColor(chatPerson.department, departments) }}
-                >
-                  {initials(chatPerson.name)}
-                </span>
-                <div className="min-w-0">
-                  <h2 className="truncate text-base font-semibold">{chatPerson.name}</h2>
-                  <p className="truncate text-xs text-[var(--muted)]">
-                    {chatPerson.title}
-                    {chatPerson.managerName ? ` · reports to ${chatPerson.managerName}` : ""}
-                  </p>
-                </div>
-              </div>
-              <button onClick={() => setChatId(undefined)} className="close-button" aria-label="Close chat">×</button>
-            </header>
-
-            <div className="chat-thread thin-scrollbar">
-              {conversation.length === 0 && !asking && (
-                <p className="chat-hint">
-                  Ask {chatPerson.name.split(" ")[0]} anything. They only know what&apos;s in the company&apos;s documents, and will tell you if something isn&apos;t covered.
-                </p>
-              )}
-              {conversation.map((entry, index) => (
-                <div key={`${entry.question}-${index}`} className="space-y-2">
-                  <p className="chat-question">{entry.question}</p>
-                  {entry.answer !== null && (
-                    <div className="chat-answer">
-                      <p className="text-sm leading-6 text-[var(--ink)]">{entry.answer}</p>
-                      <span className="chat-provenance">{provenanceLabel(entry.provenance)}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {asking && <p className="chat-thinking">{chatPerson.name.split(" ")[0]} is typing…</p>}
-              <div ref={threadEnd} />
-            </div>
-
-            <form onSubmit={ask} className="chat-composer">
-              <input
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                placeholder={`Message ${chatPerson.name.split(" ")[0]}…`}
-                className="chat-input"
-                autoFocus
-              />
-              <button disabled={asking || !question.trim()} className="chat-send">Send</button>
-            </form>
+            <ChatPanel
+              key={chatPerson.empId}
+              person={chatPerson}
+              color={departmentColor(chatPerson.department, departments)}
+              variant="drawer"
+              initialQuestion={chatId === initialChat ? question : ""}
+              onClose={() => setChatId(undefined)}
+            />
           </section>
         </div>
       )}

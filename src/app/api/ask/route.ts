@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { asOfFromRequest } from "@/lib/time/as-of";
 import { generateWithFailover } from "@/lib/ai/gemini";
 import { CEO_ASK_SYSTEM } from "@/lib/ai/prompts";
 import { embedTexts } from "@/lib/rag/embeddings";
@@ -6,6 +7,7 @@ import { retrieveEvidence, type RetrievedEvidence } from "@/lib/rag/retrieve";
 import { keywordEvidenceSearch } from "@/lib/data/fallback";
 import { loadDirectory, personFacts } from "@/lib/people/directory";
 import { loadAnalysisEvidence } from "@/lib/analysis/evidence";
+import { correctNames } from "@/lib/people/names";
 import {
   dedupeEvidenceSummaries,
   extractEvidenceSnippet,
@@ -46,6 +48,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as AskRequest;
     const question = body.question?.trim();
+    const asOf = asOfFromRequest(request);
     if (!question) return Response.json({ error: "question is required" }, { status: 400 });
     const history = (body.history ?? []).slice(-4);
 
@@ -88,8 +91,8 @@ export async function POST(request: Request) {
     const searchText = [history.at(-1)?.question, question].filter(Boolean).join(" ");
     const supabase = createServerSupabaseClient();
     const [records, directory, findings] = await Promise.all([
-      loadAnalysisEvidence(supabase, new Date().toISOString()),
-      loadDirectory(supabase),
+      loadAnalysisEvidence(supabase, asOf.at.toISOString()),
+      loadDirectory(supabase, asOf.at),
       supabase
         .from("risk_items")
         .select("title, observed, polarity")
@@ -213,7 +216,7 @@ ${notes.map((note, index) => `[${index + 1}] ${note}`).join("\n")}`,
         .filter((n) => citedSources.some((source) => source.n === n));
       const docs = [...new Set(firstUse.map(docKey))];
       const numberOf = (n: number) => docs.indexOf(docKey(n)) + 1;
-      const answer = text
+      const answer = correctNames(text, directory.map((person) => person.name.split(" ")[0]))
         .trim()
         .replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_match, list: string) => {
           const mapped = [...new Set(list.split(",").map((n) => Number(n.trim())).filter((n) => firstUse.includes(n)).map(numberOf))]

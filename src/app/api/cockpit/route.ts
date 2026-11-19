@@ -42,10 +42,10 @@ export async function GET(request: Request) {
       latestSources: unknown[];
       concerns: Array<{ risk_key: string }>;
       analysisReady: boolean;
-    }>(() => getDashboard()),
-    section<{ risks: Array<{ risk_key: string }>; analysisReady: boolean }>(() => getRisks()),
-    section<{ people: unknown[] }>(() => getPeople()),
-    section<{ sources: unknown[] }>(() => getTimeline()),
+    }>(() => getDashboard(request)),
+    section<{ risks: Array<{ risk_key: string }>; analysisReady: boolean }>(() => getRisks(request)),
+    section<{ people: unknown[] }>(() => getPeople(request)),
+    section<{ sources: unknown[] }>(() => getTimeline(request)),
   ]);
 
   const riskKeys = risks.ok ? risks.data.risks.map((risk) => risk.risk_key) : [];

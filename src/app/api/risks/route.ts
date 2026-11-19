@@ -1,4 +1,6 @@
 import { selectRiskItems } from "@/lib/data/fallback";
+import { asOfFromRequest } from "@/lib/time/as-of";
+import { findingsKnownAsOf } from "@/lib/time/known";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { dedupeAndRankRisks } from "@/lib/analysis/risk";
 import { humanizeConcernText } from "@/lib/evidence/snippet";
@@ -16,10 +18,10 @@ type RiskRow = {
   [key: string]: unknown;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = createServerSupabaseClient();
-    const asOf = new Date().toISOString();
+    const asOf = asOfFromRequest(request);
     const { data: rows, error } = await selectRiskItems(
       "id, risk_key, title, description, observed, inference, recommended_action, polarity, area, owner_employee_key, evidence_count, severity, likelihood, status, confidence, origin, first_observed_at, last_reviewed_at",
       (select) =>
@@ -40,13 +42,7 @@ export async function GET() {
       recommended_action: risk.recommended_action ? humanizeConcernText(risk.recommended_action) : null,
     }));
     if (risks.length === 0) return Response.json({ risks: [], analysisReady: true });
-    const links = await supabase
-      .from("risk_evidence")
-      .select("risk_id, evidence_items!inner(available_at)")
-      .in("risk_id", risks.map((risk) => risk.id))
-      .lte("evidence_items.available_at", asOf);
-    if (links.error) throw new Error(links.error.message);
-    const currentRiskIds = new Set((links.data ?? []).map((link) => link.risk_id));
+    const currentRiskIds = await findingsKnownAsOf(supabase, risks.map((risk) => risk.id), asOf);
     return Response.json({
       risks: dedupeAndRankRisks(
         risks.filter((risk) => currentRiskIds.has(risk.id)),

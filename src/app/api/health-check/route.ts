@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { asOfFromRequest } from "@/lib/time/as-of";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateWithFailover } from "@/lib/ai/gemini";
 import { RISK_ANALYSIS_SYSTEM } from "@/lib/ai/prompts";
@@ -6,6 +7,7 @@ import { loadAnalysisEvidence } from "@/lib/analysis/evidence";
 import { filterEvidenceAsOf } from "@/lib/analysis/risk";
 import { loadDirectory, realDepartments, type DirectoryPerson } from "@/lib/people/directory";
 import { extractEvidenceSnippet, friendlySourceTitle, redactSensitiveLines } from "@/lib/evidence/snippet";
+import { correctNames } from "@/lib/people/names";
 
 type Status = "good" | "watch" | "act" | "unknown";
 type Supabase = ReturnType<typeof createServerSupabaseClient>;
@@ -54,12 +56,13 @@ const contactOf = (person: DirectoryPerson | null | undefined) =>
   person ? { empId: person.empId, name: person.name, title: person.title } : null;
 
 /** Last saved health check (null if none has run, or the table is missing). */
-async function latest(supabase: Supabase) {
+async function latest(supabase: Supabase, before?: Date) {
   const saved = await supabase
     .from("health_checks")
     .select("checked_at, mode, model, areas")
     // The retention check shares this table under its own mode.
     .neq("mode", "retention")
+    .lte("checked_at", (before ?? new Date()).toISOString())
     .order("checked_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -72,9 +75,10 @@ async function latest(supabase: Supabase) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return Response.json({ check: await latest(createServerSupabaseClient()) });
+    // Viewing a past day shows the last check run on or before that day.
+    return Response.json({ check: await latest(createServerSupabaseClient(), asOfFromRequest(request).at) });
   } catch (error) {
     console.error("Health check read failed", error);
     return Response.json({ check: null });
@@ -185,8 +189,8 @@ ${[...byRef.entries()].map(([ref, item]) => `[${ref}] [${item.tier}] ${item.sour
       areas = parsedAreas.map((area) => ({
         area: area.area,
         status: area.status,
-        headline: area.headline,
-        why: area.why,
+        headline: correctNames(area.headline, personas.map((person) => person.name.split(" ")[0])),
+        why: correctNames(area.why, personas.map((person) => person.name.split(" ")[0])),
         evidence: area.refs
           .map((ref) => byRef.get(ref.trim().toUpperCase()))
           .filter((item): item is NonNullable<typeof item> => Boolean(item))

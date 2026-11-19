@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { asOfFromRequest } from "@/lib/time/as-of";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateWithFailover } from "@/lib/ai/gemini";
 import { RISK_ANALYSIS_SYSTEM } from "@/lib/ai/prompts";
 import { loadAnalysisEvidence } from "@/lib/analysis/evidence";
 import { filterEvidenceAsOf } from "@/lib/analysis/risk";
 import { loadDirectory, personFacts } from "@/lib/people/directory";
+import { correctNames } from "@/lib/people/names";
 import { friendlySourceTitle, redactSensitiveLines } from "@/lib/evidence/snippet";
 
 type Supabase = ReturnType<typeof createServerSupabaseClient>;
@@ -44,11 +46,12 @@ const RESPONSE_SCHEMA = {
   required: ["people"],
 };
 
-async function latest(supabase: Supabase) {
+async function latest(supabase: Supabase, before?: Date) {
   const saved = await supabase
     .from("health_checks")
     .select("checked_at, model, areas")
     .eq("mode", "retention")
+    .lte("checked_at", (before ?? new Date()).toISOString())
     .order("checked_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -56,9 +59,10 @@ async function latest(supabase: Supabase) {
   return { checkedAt: saved.data.checked_at as string, model: saved.data.model as string | null, people: saved.data.areas as RetentionFlag[] };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return Response.json({ check: await latest(createServerSupabaseClient()) });
+    // Viewing a past day shows the last check run on or before that day.
+    return Response.json({ check: await latest(createServerSupabaseClient(), asOfFromRequest(request).at) });
   } catch {
     return Response.json({ check: null });
   }
@@ -137,12 +141,13 @@ ${[...byRef.entries()].map(([ref, item]) => `[${ref}] [${item.tier}] ${friendlyS
             }]
           : [];
         if (ownReasons.length === 0 && reportedReason.length === 0) return [];
+        const names = people.map((entry) => entry.name.split(" ")[0]);
         return [{
           empId: person.empId,
           name: person.name,
           level: person.reported ? "urgent" : flag.level,
-          reasons: [...reportedReason, ...ownReasons],
-          suggestion: flag.suggestion,
+          reasons: [...reportedReason, ...ownReasons].map((reason) => ({ ...reason, text: correctNames(reason.text, names) })),
+          suggestion: correctNames(flag.suggestion, names),
         }];
       })
       .sort((left, right) => (left.level === right.level ? 0 : left.level === "urgent" ? -1 : 1));

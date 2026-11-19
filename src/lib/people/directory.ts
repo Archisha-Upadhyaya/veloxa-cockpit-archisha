@@ -1,4 +1,5 @@
 import type { createServerSupabaseClient } from "@/lib/supabase/server";
+import { matchFirstName } from "@/lib/people/names";
 import {
   extractEvidenceSnippet,
   friendlySourceTitle,
@@ -15,6 +16,12 @@ export type StoredProfile = {
   exitDate?: string | null;
   managerKey?: string | null;
   source?: { file?: string; row?: number };
+  /** HR status exactly as exported (e.g. "Notice period"). */
+  hrStatus?: string | null;
+  /** Date of that HR export; the status is not known before it. */
+  hrExportedOn?: string | null;
+  /** Leave periods from the leave register (dates only, no reason). */
+  leave?: Array<{ from: string; to: string; days: number | null }>;
   /** Reported by the CEO, not in the HR export yet. Never treated as evidence. */
   reported?: ReportedStatus | null;
 };
@@ -83,7 +90,7 @@ function tenure(joined: string | null | undefined, until: Date) {
  * name them (full name, first name, or work email), then total mentions. The
  * HR master (everyone is in it) and CEO voice notes are not counted.
  */
-function presenceOf(row: ProfileRow, profile: StoredProfile, evidenceRows: EvidenceRow[]) {
+function presenceOf(row: ProfileRow, profile: StoredProfile, evidenceRows: EvidenceRow[], firstNames: string[]) {
   const first = row.display_name.split(/\s+/)[0];
   const patterns = [
     new RegExp(`\\b${escapeRegExp(row.display_name)}\\b`, "i"),
@@ -96,7 +103,11 @@ function presenceOf(row: ProfileRow, profile: StoredProfile, evidenceRows: Evide
     const document = item.source_locations?.source_documents;
     const key = document?.relative_path ?? document?.title ?? "";
     if (/employee[_\s-]*master/i.test(key) || /(^|\/)T6[a-z]?_/i.test(key)) continue;
-    if (patterns.some((pattern) => pattern.test(item.evidence_text))) {
+    // Exact name or email, or a variant spelling of the first name
+    // ("Ayesha" for Aisha, "Pria" for Priya) that maps back to this person.
+    const variant = () =>
+      (item.evidence_text.match(/\b[A-Z][a-z]{2,}\b/g) ?? []).some((word) => matchFirstName(word, firstNames) === first);
+    if (patterns.some((pattern) => pattern.test(item.evidence_text)) || variant()) {
       documents.add(key);
       mentions += 1;
     }
@@ -181,15 +192,19 @@ export type DirectoryResult = {
  * warnings and nobody disappears from the directory.
  */
 export function buildDirectory(
-  rows: ProfileRow[],
+  inputRows: ProfileRow[],
   evidenceRows: EvidenceRow[],
   changes: OrgChange[],
   asOf = new Date(),
 ): DirectoryResult {
-  const byKey = new Map(rows.map((row) => [row.employee_key, row]));
   const profileOf = (row: ProfileRow) => (row.profile ?? {}) as StoredProfile;
   const warnings: string[] = [];
-  const today = asOf.toISOString().slice(0, 10);
+  // The calendar day being viewed, in India (where the company is).
+  const today = new Date(asOf.getTime() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+  // People who had not joined yet on that day were not in the company.
+  const rows = inputRows.filter((row) => !profileOf(row).joined || profileOf(row).joined! <= today);
+  const byKey = new Map(rows.map((row) => [row.employee_key, row]));
+  const firstNames = rows.map((row) => row.display_name.split(/\s+/)[0]);
 
   // 1. Base reporting line from the HR master.
   const managerOf = new Map<string, string | null>();
@@ -289,8 +304,24 @@ export function buildDirectory(
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
-    const exited = !row.is_active && profile.exitDate;
-    const presence = presenceOf(row, profile, evidenceRows);
+    // Status as of the day viewed: left, CEO-reported, on leave, or HR status.
+    const exited = Boolean(profile.exitDate && profile.exitDate < today);
+    const reportedNow = profile.reported && profile.reported.reportedOn <= today ? profile.reported : null;
+    const leaveToday = (profile.leave ?? []).find((period) => period.from <= today && today <= period.to);
+    // An exported HR status (e.g. "Notice period") is only known from the
+    // export date on; before that, someone still employed shows as Active.
+    const hrStatusNow =
+      profile.hrStatus && profile.hrExportedOn && today < profile.hrExportedOn && profile.hrStatus !== "Active"
+        ? "Active"
+        : profile.hrStatus;
+    const statusNow = exited
+      ? "Exited"
+      : reportedNow
+        ? { resigned: "Resigned", leaving: "Leaving", on_leave: "On leave" }[reportedNow.status]
+        : leaveToday
+          ? leaveToday.days !== null && leaveToday.days < 1 ? "Half day off" : "On leave"
+          : hrStatusNow ?? (profile.status === "Exited" ? "Notice period" : profile.status) ?? "Active";
+    const presence = presenceOf(row, profile, evidenceRows, firstNames);
     const pending = changeStates.filter((change) => !change.applied && change.affects.includes(row.display_name));
 
     return {
@@ -302,11 +333,9 @@ export function buildDirectory(
       joined: profile.joined ?? null,
       tenure: tenure(profile.joined, exited ? new Date(`${profile.exitDate}T00:00:00Z`) : asOf),
       location: profile.location ?? null,
-      status: profile.reported && row.is_active
-        ? { resigned: "Resigned", leaving: "Leaving", on_leave: "On leave" }[profile.reported.status]
-        : profile.status ?? (row.is_active ? "Active" : "Inactive"),
-      exitDate: profile.exitDate ?? profile.reported?.expectedExit ?? null,
-      isActive: Boolean(row.is_active),
+      status: statusNow,
+      exitDate: profile.exitDate ?? reportedNow?.expectedExit ?? null,
+      isActive: !exited,
       managerId,
       managerName: manager?.display_name ?? null,
       managerTitle: manager?.role_title ?? null,
@@ -327,7 +356,7 @@ export function buildDirectory(
       mentionCount: mentions.length,
       presence,
       isPersona: false,
-      reported: profile.reported ?? null,
+      reported: reportedNow,
       pendingChanges: pending.map((change) => ({
         to: change.new_manager_key ? byKey.get(change.new_manager_key)?.display_name ?? change.new_manager_key : change.new_manager_title ?? "a new manager",
         when: change.effective_from ?? change.effective_note ?? "date not set",
