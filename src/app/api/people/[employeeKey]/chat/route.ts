@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { asOfFromRequest } from "@/lib/time/as-of";
 import { generateGroundedAnswer } from "@/lib/ai/gemini";
+import { hasGeminiApiKey } from "@/lib/ai/keys";
 import { EMPLOYEE_CHAT_SYSTEM } from "@/lib/ai/prompts";
 import { defaultMatchThreshold, embedTexts } from "@/lib/rag/embeddings";
 import { keywordEvidenceSearch, keywordTerms } from "@/lib/data/fallback";
@@ -305,14 +306,14 @@ export async function POST(
         { status: 403 },
       );
     }
-    const voice = person && process.env.GEMINI_API_KEY
+    const voice = person && hasGeminiApiKey()
       ? await getPersona(supabase, data.id, person)
       : null;
     const firstName = data.display_name.split(/\s+/)[0];
 
     let answer: string | null | undefined;
     let provenance = "grounded";
-    if (process.env.GEMINI_API_KEY) {
+    if (hasGeminiApiKey()) {
       try {
         const generated = await generateGroundedAnswer(
           `You are ${data.display_name}, ${data.role_title} in ${data.department} at Veloxa.

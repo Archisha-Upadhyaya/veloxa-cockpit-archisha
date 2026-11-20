@@ -17,6 +17,8 @@ import {
   isPrivateMessageRequest,
   isQuitRankingRequest,
   PRIVATE_MESSAGE_REFUSAL,
+  COMPENSATION_REFUSAL,
+  RETENTION_CHECK_FALLBACK,
   isSensitiveEvidence,
   redactSensitiveLines,
 } from "@/lib/evidence/snippet";
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
                 .map((flag) => `${flag.name}${flag.level === "urgent" ? " (urgent)" : ""}: ${flag.reasons.map((reason) => reason.text.replace(/[.\s]+$/, "")).join("; ")}`)
                 .join(". ")}. These are reasons to check in, not predictions. Re-run it on the People page for a fresh view.`
             : "The last retention check found no one with a clear reason for a check-in. You can re-run it on the People page."
-          : "Run the retention check on the People page. It lists who you may want to check in with and why, using only work records like workload, on-call load and open tickets.",
+          : RETENTION_CHECK_FALLBACK,
         sources: [],
         mode: "policy",
       });
@@ -80,8 +82,7 @@ export async function POST(request: Request) {
 
     if (isCompensationQuestion(question)) {
       return Response.json({
-        answer:
-          "Individual pay stays out of this view. For payroll totals or a specific case, the CFO or Head of People can take you through it directly.",
+        answer: COMPENSATION_REFUSAL,
         sources: [],
         mode: "policy",
       });

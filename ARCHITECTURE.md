@@ -696,6 +696,12 @@ Ordered failover chains per task. Analysis: `gemini-3.8-flash` →
 `gemini-flash-lite-latest`. Chat: lite models first. Override with
 `GEMINI_ANALYSIS_MODELS` / `GEMINI_CHAT_MODELS`.
 
+`GEMINI_API_KEYS` holds one or more keys separated by commas, semicolons or
+whitespace; the legacy `GEMINI_API_KEY` name is a one-key fallback. Text and
+embedding calls share the rotation in `src/lib/ai/keys.ts`: a 401, 403 or 429
+cools that key for a minute and moves to the next one, so the list can grow or
+shrink without a code change (D-041).
+
 ### 16.4 People, personas and reorganisations
 
 -   **Directory** (`src/lib/people/directory.ts`): a pure builder from HR

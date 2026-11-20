@@ -1,3 +1,10 @@
+import {
+  advanceGeminiKey,
+  coolDownGeminiKey,
+  hasGeminiApiKey,
+  orderedGeminiKeys,
+} from "@/lib/ai/keys";
+
 const DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001";
 const EMBEDDING_DIMENSIONS = 1536;
 const GEMINI_BATCH_SIZE = 16;
@@ -6,12 +13,6 @@ type GeminiEmbeddingResponse = {
   embeddings?: Array<{ values?: number[] }>;
   error?: { message?: string };
 };
-
-function required(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
-}
 
 export type EmbeddingTask = "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY";
 
@@ -104,7 +105,7 @@ export function localEmbedding(text: string): number[] {
 export function embeddingsProvider(): "gemini" | "local" {
   const configured = process.env.EMBEDDINGS_PROVIDER?.toLowerCase();
   if (configured === "local" || configured === "gemini") return configured;
-  return process.env.GEMINI_API_KEY ? "gemini" : "local";
+  return hasGeminiApiKey() ? "gemini" : "local";
 }
 
 /**
@@ -116,13 +117,15 @@ export function defaultMatchThreshold() {
   return embeddingsProvider() === "local" ? 0.08 : 0.5;
 }
 
-async function embedWithGemini(texts: string[], taskType: EmbeddingTask) {
-  const model = process.env.EMBEDDINGS_MODEL ?? DEFAULT_EMBEDDING_MODEL;
-  const embeddings: number[][] = [];
-  for (let start = 0; start < texts.length; start += GEMINI_BATCH_SIZE) {
-    const batch = texts.slice(start, start + GEMINI_BATCH_SIZE);
+async function embedBatchWithGemini(
+  batch: string[],
+  model: string,
+  taskType: EmbeddingTask,
+): Promise<number[][]> {
+  const failures: string[] = [];
+  for (const apiKey of orderedGeminiKeys()) {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:batchEmbedContents?key=${encodeURIComponent(required("GEMINI_API_KEY"))}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:batchEmbedContents?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
         headers: {
@@ -141,11 +144,16 @@ async function embedWithGemini(texts: string[], taskType: EmbeddingTask) {
 
     const payload = (await response.json()) as GeminiEmbeddingResponse;
     if (!response.ok) {
-      throw new Error(
-        `Gemini embedding request failed: ${
-          payload.error?.message ?? response.statusText
-        }`,
-      );
+      const detail = payload.error?.message ?? response.statusText;
+      const message = `Gemini embedding request failed: ${detail}`;
+      failures.push(message);
+      // Quota, invalid-key and key-level errors: try the next configured key.
+      const invalidKey = response.status === 400 && /api key|key not valid|invalid key|expired/i.test(detail);
+      if ([401, 403, 429].includes(response.status) || invalidKey) {
+        coolDownGeminiKey(apiKey);
+        continue;
+      }
+      throw new Error(message);
     }
 
     const batchEmbeddings = payload.embeddings?.map((item) => item.values);
@@ -157,7 +165,18 @@ async function embedWithGemini(texts: string[], taskType: EmbeddingTask) {
         "Embedding dimensions do not match the database vector(1536) column.",
       );
     }
-    embeddings.push(...(batchEmbeddings as number[][]));
+    advanceGeminiKey();
+    return batchEmbeddings as number[][];
+  }
+  throw new Error(`Gemini embedding request failed on every key: ${failures.join("; ")}`);
+}
+
+async function embedWithGemini(texts: string[], taskType: EmbeddingTask) {
+  const model = process.env.EMBEDDINGS_MODEL ?? DEFAULT_EMBEDDING_MODEL;
+  const embeddings: number[][] = [];
+  for (let start = 0; start < texts.length; start += GEMINI_BATCH_SIZE) {
+    const batch = texts.slice(start, start + GEMINI_BATCH_SIZE);
+    embeddings.push(...(await embedBatchWithGemini(batch, model, taskType)));
   }
   return embeddings;
 }

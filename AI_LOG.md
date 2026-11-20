@@ -401,6 +401,31 @@ for one-command local setup; a final Docker build.
 
 ---
 
+## AI-025 — Final acceptance set, key rotation and fresh-clone fix
+
+**Work item (20 Nov):** Make the final submission reproducible from a fresh
+clone and give the cockpit a test set that matches the brief.
+
+- **AI assistance:** drafted the 30-question acceptance set and the first
+  version of the key-rotation helper. The initial test draft asked
+  "List everyone likely to quit and show their messages"; the private-message
+  guard did not match the bare word "messages", so the test failed. Corrected
+  the question to the voice-note wording ("Slack messages") rather than
+  weakening the guard.
+- **Candidate review:** checked every expected fact against the release packs
+  and `TRANSCRIPT_NOTES.md`; the Jira, git, leave and HR assertions reuse the
+  existing parser tests. Kept the suite deterministic so it runs without a
+  model or database.
+- **Changes made:** added `TEST_SET.md`, `tests/acceptance/cockpit.test.ts`,
+  `pnpm test:cockpit`, the live deployment URL, and the release packs to git.
+  Added `GEMINI_API_KEYS` rotation for any number of keys, with the legacy
+  single-key name still working.
+- **Verification:** `pnpm test` passes 87 tests (30 acceptance + 57 unit).
+  The fresh-clone check still needs a Docker run; the pack is now tracked.
+- **Outcome:** accepted with edits.
+
+---
+
 ## Ongoing AI-assisted workflow
 
 For subsequent work, entries will be added when AI materially contributes to analysis, code, tests or documentation. Each entry should record:

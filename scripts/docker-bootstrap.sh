@@ -4,9 +4,10 @@ set -eu
 # One-time (and repeat-safe) bootstrap for the local Docker stack.
 # The sync ingests the release packs and the people directory; when files are
 # new or changed, the app itself embeds them and builds the brief in the
-# background (pacing itself for API quotas). Set GEMINI_API_KEY in .env.local
-# for AI analysis, chat and semantic search; without it the documents, people,
-# time machine and keyword search still work, but no concerns are generated.
+# background (pacing itself for API quotas). Set GEMINI_API_KEYS in .env.local
+# (one or more comma-separated keys) for AI analysis, chat and semantic search;
+# without keys the documents, people, time machine and keyword search still
+# work, but no concerns are generated.
 
 BASE_URL="${APP_URL:-http://app:3000}"
 # The app requires sign-in; trusted jobs use the shared session secret.

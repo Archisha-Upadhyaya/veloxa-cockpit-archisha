@@ -1,4 +1,10 @@
 import { GROUNDED_ANSWER_SYSTEM } from "@/lib/ai/prompts";
+import {
+  advanceGeminiKey,
+  coolDownGeminiKey,
+  geminiApiKeys,
+  orderedGeminiKeys,
+} from "@/lib/ai/keys";
 
 type GeminiResponse = {
   candidates?: Array<{
@@ -43,20 +49,20 @@ export function modelChain(task: ModelTask): string[] {
   return [...new Set(chain)];
 }
 
-function required(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
-}
-
 class ModelError extends Error {
-  constructor(message: string, readonly retryable: boolean) {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    /** True when another key may succeed (quota, invalid or revoked key). */
+    readonly keyFailure = false,
+  ) {
     super(message);
   }
 }
 
 async function callModel(
   model: string,
+  apiKey: string,
   prompt: string,
   systemInstruction: string,
   options: { maxOutputTokens: number; timeoutMs: number; json: boolean; schema?: object },
@@ -66,7 +72,7 @@ async function callModel(
   let response: Response;
   try {
     response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(required("GEMINI_API_KEY"))}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -94,11 +100,17 @@ async function callModel(
   }
   const payload = (await response.json().catch(() => ({}))) as GeminiResponse;
   if (!response.ok) {
-    // 429 quota, 5xx overload and 404 retired model all mean "try the next
-    // model"; 400 means the request itself is wrong and will fail everywhere.
+    const message = payload.error?.message ?? response.statusText;
+    // 400 is normally a malformed request and will fail on every key. Google
+    // also uses 400 for an invalid/expired key, so treat that as key-level.
+    const invalidKey = response.status === 400 && /api key|key not valid|invalid key|expired/i.test(message);
+    // 401/403/429 are key-level failures: move to the next key. 404 (retired
+    // model) and 5xx (overload) are model-level: move to the next model.
+    const keyFailure = [401, 403, 429].includes(response.status) || invalidKey;
     throw new ModelError(
-      `${model}: ${response.status} ${payload.error?.message ?? response.statusText}`,
-      response.status !== 400 && response.status !== 401 && response.status !== 403,
+      `${model}: ${response.status} ${message}`,
+      response.status !== 400 || invalidKey,
+      keyFailure,
     );
   }
   const answer = payload.candidates?.[0]?.content?.parts
@@ -129,26 +141,45 @@ export async function generateWithFailover(
     validate?: (text: string) => boolean;
   } = {},
 ) {
+  if (geminiApiKeys().length === 0) {
+    throw new Error("Missing GEMINI_API_KEYS (or GEMINI_API_KEY).");
+  }
   const failures: string[] = [];
   for (const model of modelChain(options.task ?? "chat")) {
-    try {
-      const text = await callModel(model, prompt, systemInstruction, {
-        maxOutputTokens: options.maxOutputTokens ?? 320,
-        timeoutMs: options.timeoutMs ?? 12_000,
-        json: options.json ?? false,
-        schema: options.schema,
-      });
-      if (options.validate && !options.validate(text)) {
-        throw new ModelError(`${model}: response failed validation`, true);
+    // Re-read the rotation for each model: keys that failed on the previous
+    // model are already cooling down.
+    for (const apiKey of orderedGeminiKeys()) {
+      try {
+        const text = await callModel(model, apiKey, prompt, systemInstruction, {
+          maxOutputTokens: options.maxOutputTokens ?? 320,
+          timeoutMs: options.timeoutMs ?? 12_000,
+          json: options.json ?? false,
+          schema: options.schema,
+        });
+        if (options.validate && !options.validate(text)) {
+          throw new ModelError(`${model}: response failed validation`, true);
+        }
+        advanceGeminiKey();
+        if (failures.length > 0) {
+          console.warn(`Gemini failover used ${model} after: ${failures.join("; ")}`);
+        }
+        return { text, model };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(message);
+        if (error instanceof ModelError) {
+          if (error.keyFailure) {
+            coolDownGeminiKey(apiKey);
+            continue;
+          }
+          // A model-level failure will repeat on every key: move to the next
+          // model. A non-retryable 400 stops the chain.
+          if (error.retryable) break;
+          throw error;
+        }
+        // Network errors and timeouts are model-level too.
+        break;
       }
-      if (failures.length > 0) {
-        console.warn(`Gemini failover used ${model} after: ${failures.join("; ")}`);
-      }
-      return { text, model };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      failures.push(message);
-      if (error instanceof ModelError && !error.retryable) break;
     }
   }
   throw new Error(`Gemini answer failed on every model: ${failures.join("; ")}`);

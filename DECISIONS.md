@@ -517,3 +517,32 @@ history silently.
 -   **Decision:** `/report` sits over a dimmed backdrop; clicking outside the
     page, pressing Esc or "Close" returns to where it was opened.
 -   **Revisit if:** More than one person needs access, or roles differ.
+
+## D-041 --- Rotate Gemini keys on quota, without hardcoding a count (20 Nov 2026)
+
+-   **Decision:** `GEMINI_API_KEYS` is a comma-, semicolon- or
+    whitespace-separated list of any length. A request starts at the next key
+    in rotation; a 401, 403 or 429 puts that key on a short cooldown and the
+    request moves to the next key. If every key is cooling down, the request
+    tries them in order rather than failing immediately. The legacy
+    `GEMINI_API_KEY` name is still read as a one-key list.
+-   **Why:** the project has three keys today, but the number can grow or
+    shrink. A hardcoded pair would break the moment the list changed.
+-   **Scope:** both text generation (`src/lib/ai/gemini.ts`) and embeddings
+    (`src/lib/rag/embeddings.ts`) use the same rotation module.
+-   **Revisit if:** a key needs a per-key model policy, or the provider exposes
+    a reliable quota-reset timestamp.
+
+## D-042 --- Commit the release packs and ship a deterministic acceptance set (20 Nov 2026)
+
+-   **Decision:** The Day 1–4 release packs are committed, not gitignored, so
+    `docker compose up --build` works from a fresh clone. The 30-question
+    acceptance set lives in `tests/acceptance/` and runs without a database,
+    model key or network. `TEST_SET.md` mirrors it for human review.
+-   **Why:** the brief says the setup will be tested from a fresh clone, and
+    the test set must run with one command. A test that needs a hosted database
+    or a live model is not a reliable submission check.
+-   **Trade-off:** the committed packs include the supplied fictional company
+    material. They contain no real people or real company data.
+-   **Revisit if:** the release material is no longer allowed in the
+    repository; the bootstrap would then need an explicit download step.

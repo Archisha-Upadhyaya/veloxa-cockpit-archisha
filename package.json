@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:cockpit": "vitest run tests/acceptance",
     "sync:employees": "tsx --env-file=.env.local --tsconfig tsconfig.json scripts/sync-employees.ts",
     "purge:seeded": "tsx --env-file=.env.local scripts/purge-seeded.ts",
     "embed:supabase": "node --env-file=.env.local --import tsx/esm scripts/embed-supabase.ts"

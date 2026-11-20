@@ -41,5 +41,3 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# transcripts and data room
-/Veloxa_Hackathon_Release_Packs

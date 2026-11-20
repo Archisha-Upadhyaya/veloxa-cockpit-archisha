@@ -1089,3 +1089,9 @@ export const PRIVATE_MESSAGE_REFUSAL =
   "I can't show anyone's private messages: there are no Slack or chat records in the company's documents, and reading people's private messages to judge them would be monitoring them. For who might need a check-in, use the retention check on the People page; it works only from work records like workload, on-call load and open tickets.";
 
 export const SURVEILLANCE_REFUSAL = PRIVATE_MESSAGE_REFUSAL;
+
+export const COMPENSATION_REFUSAL =
+  "Individual pay stays out of this view. For payroll totals or a specific case, the CFO or Head of People can take you through it directly.";
+
+export const RETENTION_CHECK_FALLBACK =
+  "Run the retention check on the People page. It lists who you may want to check in with and why, using only work records like workload, on-call load and open tickets.";

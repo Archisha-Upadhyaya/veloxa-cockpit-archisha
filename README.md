@@ -8,6 +8,13 @@ open concerns, and talk to employee agents whose answers stay grounded in the
 released material. Every visible extract is sanitised: the cockpit shows a
 sentence a person can read, never a CSV row, a table, or a raw document chunk.
 
+## Live demo
+
+**https://veloxa-cockpit.vercel.app** — sign in with `ceo` / `veloxa-brief`.
+
+The deployment runs against a hosted Supabase project with the Day 1–4 release
+packs ingested and live Gemini analysis enabled.
+
 ## What works today
 
 - **Morning brief (overview)** — greets the CEO by name and shows the three
@@ -90,13 +97,41 @@ That one command:
 It is safe to run again: unchanged files are skipped and existing data is
 kept.
 
-### Optional: AI features
+The release packs are committed in this repository, so a fresh clone has the
+Day 1–4 material the bootstrap needs.
 
-Create `.env.local` with a Gemini key (copy `.env.example`) before starting:
+### Test set
+
+The cockpit ships with 30 questions and the answers it must stand behind:
 
 ```bash
-GEMINI_API_KEY=your-key
+pnpm install
+pnpm test
 ```
+
+That runs the unit tests and the acceptance set. To run only the acceptance
+set:
+
+```bash
+pnpm test:cockpit
+```
+
+The questions cover policy refusals, point-in-time boundaries, grounded facts,
+missing records and recorded conflicts. `TEST_SET.md` is the human-readable
+version; `tests/acceptance/cockpit.test.ts` is the executable one. The suite is
+deterministic and needs no database, model key or network connection.
+
+### Optional: AI features
+
+Create `.env.local` with one or more Gemini keys (copy `.env.example`) before
+starting. Separate multiple keys with commas; the app rotates to the next key
+when one hits its per-minute quota:
+
+```bash
+GEMINI_API_KEYS=key-one,key-two,key-three
+```
+
+A single key works. The legacy `GEMINI_API_KEY` name is still accepted.
 
 | | With a key | Without a key |
 |---|---|---|
@@ -242,7 +277,8 @@ pnpm dev
 Quality checks:
 
 ```bash
-pnpm test               # Vitest: safety, snippet, ranking, refusal
+pnpm test               # 87 tests: 30 cockpit questions + 57 unit tests
+pnpm test:cockpit       # only the 30-question acceptance set
 pnpm exec tsc --noEmit
 pnpm lint
 pnpm build
@@ -274,6 +310,7 @@ src/
 supabase/migrations/         # shared schema for Docker and hosted Supabase
 scripts/                     # purge-seeded, sync-employees, embed, Docker migration and bootstrap jobs
 tests/unit/                  # Vitest safety and ranking tests
+tests/acceptance/            # 30 cockpit questions with expected answers
 docker/nginx.conf            # /rest/v1 gateway for the Supabase JS client
 ```
 
@@ -286,6 +323,7 @@ docker/nginx.conf            # /rest/v1 gateway for the Supabase JS client
 | `TRANSCRIPT_NOTES.md` | Transcript interpretation and source conflicts |
 | `DECISIONS.md` | Product and technical decisions and trade-offs |
 | `AI_LOG.md` | AI-assisted work, review, and corrections |
+| `TEST_SET.md` | The 30 questions and the answers the cockpit must stand behind |
 | `.env.example` | Hosted and local configuration template |
 
 ## Scope
