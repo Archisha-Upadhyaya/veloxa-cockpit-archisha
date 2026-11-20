@@ -323,7 +323,7 @@ describe("questions with no record", () => {
 });
 
 describe("recorded source conflicts", () => {
-  it("Q27 — ARR: T1/T2 vs board updates → both recorded, board preferred", () => {
+  it("Q27 — ARR: T1/T2 vs board updates → both recorded, board values used for their periods", () => {
     expect(transcriptNotes).toContain("T1-N02");
     expect(transcriptNotes).toContain("₹5.8 Cr");
     expect(transcriptNotes).toContain("₹6.1 Cr");

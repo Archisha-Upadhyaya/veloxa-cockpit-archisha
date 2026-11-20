@@ -426,6 +426,20 @@ clone and give the cockpit a test set that matches the brief.
 
 ---
 
+## AI-025 — Final requirements check (20 Nov)
+
+- **Checked against the brief:** found that Ask did not state a confidence
+  level, and personas had no logged personal life. Added both; also respect
+  levels in how employees address the CEO.
+- **Live check:** "What is our NPS?" → "I don't know…"; "monthly burn" →
+  "The sources disagree…" with both figures cited; Vikram addresses the CEO
+  by name, Sneha says "ma'am" and apologises for the incidents.
+- **Known limits:** the invented personal details are repetitive across
+  people; a directory fact can come back at low confidence when the model
+  omits its citation marker.
+
+---
+
 ## Ongoing AI-assisted workflow
 
 For subsequent work, entries will be added when AI materially contributes to analysis, code, tests or documentation. Each entry should record:

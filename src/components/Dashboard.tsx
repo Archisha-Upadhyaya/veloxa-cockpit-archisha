@@ -42,7 +42,7 @@ const shortDate = (day: string, viewedYear?: string) =>
 type Person = { empId: string; name: string; title: string; department: string; isActive: boolean; level?: number; status?: string };
 type AskSource = { n: number; id: string; summary: string; source: string; date: string | null };
 /** answer is null while the reply is on its way. */
-type AskTurn = { question: string; answer: string | null; sources: AskSource[]; mode?: string };
+type AskTurn = { question: string; answer: string | null; sources: AskSource[]; mode?: string; confidence?: string; status?: string };
 type HealthArea = {
   area: string;
   status: "good" | "watch" | "act" | "unknown";
@@ -168,6 +168,8 @@ export default function Dashboard() {
         answer: body.answer ?? body.error ?? "No answer came back. Try again.",
         sources: body.sources ?? [],
         mode: body.mode,
+        confidence: body.confidence,
+        status: body.status,
       });
     } catch {
       settle({ answer: "I couldn't reach the server. Try again in a moment.", sources: [] });
@@ -379,6 +381,14 @@ export default function Dashboard() {
                 <p className="chat-question">{turn.question}</p>
                 {turn.answer !== null && (
                 <div className="ask-answer">
+                  {turn.status && (
+                    <p className="mb-2 flex flex-wrap items-center gap-1.5">
+                      <span className={turn.status === "conflict" ? "sev-pill sev-pill-medium" : turn.status === "unknown" ? "type-pill" : turn.status === "refused" ? "sev-pill sev-pill-high" : "pill-good"}>
+                        {{ answered: "answered", unknown: "I don't know", conflict: "sources disagree", refused: "won't answer" }[turn.status] ?? turn.status}
+                      </span>
+                      {turn.confidence && <ConfidencePill confidence={turn.confidence} />}
+                    </p>
+                  )}
                   <p className="text-[15px] leading-7">
                     {withCitations(turn.answer ?? "", (n) => setOpenCite(`${index}:${n}`))}
                   </p>

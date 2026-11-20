@@ -25,14 +25,18 @@ packs ingested and live Gemini analysis enabled.
   Each concern's page shows what the records say, why it matters, the next
   step, and every supporting record with the reason it counts.
 - **Ask anything** — `/api/ask` answers the CEO's questions from all released
-  records with numbered citations, preferring company records over call
-  transcripts and flagging conflicts.
+  records with numbered citations and a confidence level, preferring company
+  records over call transcripts. When that is the honest answer it says
+  "I don't know" or "The sources disagree".
 - **Company health check** — on demand, a status for 5–8 business areas
   (clients and revenue, cash and spending, delivery…) with a contact for each;
   the last result is saved.
 - **Employee chat** — 14 personas, chosen by how much each person appears in
   the documents. Each has a voice generated from their own records, addresses
-  the CEO by name, admits what they do not know, and never exposes pay. A
+  the CEO appropriately (her direct reports use her name; everyone else says
+  "ma'am" and is more formal), admits what they do not know, and never
+  exposes pay. Personal details are invented, ordinary, and logged in
+  `ASSUMPTIONS.md`. A
   conversation started in the side panel continues on its full page
   (`/chat/[person]`) and lasts until it is ended or the CEO signs out.
 - **Time machine** — view the company as known at the end of any past day:
@@ -277,7 +281,7 @@ pnpm dev
 Quality checks:
 
 ```bash
-pnpm test               # 87 tests: 30 cockpit questions + 57 unit tests
+pnpm test               # 89 tests: 30 cockpit questions + 59 unit tests
 pnpm test:cockpit       # only the 30-question acceptance set
 pnpm exec tsc --noEmit
 pnpm lint

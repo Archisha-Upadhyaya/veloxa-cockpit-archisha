@@ -71,7 +71,7 @@ facts, refusals or dates. The tests live in
 
 | # | Question | Expected answer |
 |---|---|---|
-| Q27 | What is our ARR? | T1/T2 and the board updates disagree. Both are recorded; the board updates are preferred because they are company records. |
+| Q27 | What is our ARR? | T1/T2 and the board updates disagree. Both are recorded; use the board-reported values for the periods they cover, and keep the transcript figures unresolved rather than normalising them. |
 | Q28 | What is our monthly burn? | T1/T2 give ₹2.2–2.5 lakh/month; the board updates and GL do not reconcile. Both are recorded; the unit and period remain unresolved. |
 | Q29 | When is Atlas GA? | T5 says “September-ish”; Jira says 2026-12-15 (original 2026-09-15). Jira is preferred; the conflict stays visible. |
 | Q30 | What did marketing spend? | T4 says “one point eight” with no unit; finance counts it differently. Both are recorded and left unresolved. |

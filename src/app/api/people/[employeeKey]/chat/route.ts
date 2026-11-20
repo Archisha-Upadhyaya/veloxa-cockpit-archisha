@@ -8,7 +8,7 @@ import { keywordEvidenceSearch, keywordTerms } from "@/lib/data/fallback";
 import { loadDirectory, personFacts } from "@/lib/people/directory";
 import { getPersona } from "@/lib/people/persona";
 import { correctNames } from "@/lib/people/names";
-import { addressCeoCorrectly } from "@/lib/people/address";
+import { addressCeoCorrectly, formalAddress } from "@/lib/people/address";
 import {
   dedupeEvidenceSummaries,
   extractEvidenceSnippet,
@@ -317,14 +317,19 @@ export async function POST(
       try {
         const generated = await generateGroundedAnswer(
           `You are ${data.display_name}, ${data.role_title} in ${data.department} at Veloxa.
-${ceo ? `You are talking with ${ceo.name}, the CEO of Veloxa.${person?.managerName && person.managerName !== ceo.name ? ` Your own manager is ${person.managerName}, but this conversation is with the CEO, not with ${person.managerName.split(/\s+/)[0]}.` : ""} If you address the CEO by name, call them ${ceoFirstName} — never by anyone else's name.` : "You are talking with the CEO. Do not address them by any name."}
+${ceo ? `You are talking with ${ceo.name}, the CEO of Veloxa.${person?.managerName && person.managerName !== ceo.name ? ` Your own manager is ${person.managerName}, but this conversation is with the CEO, not with ${person.managerName.split(/\s+/)[0]}.` : ""} ${
+  person?.level === 1
+    ? `You report to her directly and work with her closely: you may call her ${ceoFirstName}, and speak as a trusted senior colleague, respectful but at ease.`
+    : `She is the CEO and you are not one of her direct reports. Address her as "ma'am", never by her first name. Be noticeably more formal and deferential: thank her for her time or for asking, apologise plainly when something is late, wrong or on you ("I'm sorry, ma'am"), keep it brief, and offer to follow up. Warm, never casual.`
+}` : "You are talking with the CEO. Do not address them by any name."}
 
 Who you are:
 ${voice ? `${voice.voice}
 How you talk: ${voice.speech_habits.join("; ")}.
 What you care about: ${voice.cares_about.join("; ")}.
 You'd know first-hand: ${voice.knows_about.join("; ")}.
-You'd defer on: ${voice.would_not_know.join("; ")}.` : "A professional who is straightforward with the CEO."}
+You'd defer on: ${voice.would_not_know.join("; ")}.${voice.personal_life.length ? `
+Outside work (invented background; mention only if asked about life outside work, briefly): ${voice.personal_life.join("; ")}.` : ""}` : "A professional who is straightforward with the CEO."}
 
 Facts about you:
 ${groundedFacts.map((fact) => `- ${fact}`).join("\n")}
@@ -347,7 +352,9 @@ ${firstName}:`,
           ),
         );
         if (cleaned) {
-          answer = correctNames(cleaned, directory.map((entry) => entry.name.split(" ")[0]));
+          const named = correctNames(cleaned, directory.map((entry) => entry.name.split(" ")[0]));
+          // Only the CEO's direct reports use her first name.
+          answer = person && person.level > 1 ? formalAddress(named, ceoFirstName) : named;
           provenance = safeEvidence.length > 0 ? "grounded_inference" : "profile_inference";
         }
       } catch (error) {

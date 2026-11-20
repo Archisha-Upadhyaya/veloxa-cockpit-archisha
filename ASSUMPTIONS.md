@@ -258,6 +258,66 @@ revised rows keep their original text above.
     such files in Day 1--4. T6c's request could not be met from the records
     even if it were appropriate. *Status:* Active.
 
+## Invented persona details --- 20 November 2026
+
+The brief asks each of the 14 agents to have a personal life, with anything
+invented logged as an assumption. No released record covers anyone's life
+outside work, so these details are invented: generated once per person from
+their role, city and records, kept deliberately ordinary (no health, family,
+religion, politics, money or relationships), and stored in the `assumptions`
+table with the same references as below. The agents mention them only when
+asked about life outside work.
+
+*Basis for every row:* invented, no source. *Confidence:* low. *What would
+change my mind:* any record, or the person themself, saying otherwise.
+*Status:* active. (They are fairly repetitive across people, a limit of the
+free-tier model that generated them.)
+
+| Ref | Assumption |
+|---|---|
+| A-PERSONA-VX002-1 | Manoj Kumar: Commutes via the Bengaluru Metro to avoid peak traffic |
+| A-PERSONA-VX002-2 | Manoj Kumar: Spends weekends hiking in the Nandi Hills |
+| A-PERSONA-VX002-3 | Manoj Kumar: Enjoys reading historical biographies to unwind after work |
+| A-PERSONA-VX003-1 | Meera Iyer: Commutes from Indiranagar to the office |
+| A-PERSONA-VX003-2 | Meera Iyer: Practices yoga on weekend mornings |
+| A-PERSONA-VX003-3 | Meera Iyer: Enjoys reading historical non-fiction during her downtime |
+| A-PERSONA-VX004-1 | Vikram Menon: Commutes from Indiranagar to the office |
+| A-PERSONA-VX004-2 | Vikram Menon: Enjoys weekend cycling trips on the outskirts of Bengaluru |
+| A-PERSONA-VX004-3 | Vikram Menon: Listens to technical podcasts during his morning commute |
+| A-PERSONA-VX005-1 | Deepa Joshi: Commutes from Indiranagar to the office |
+| A-PERSONA-VX005-2 | Deepa Joshi: Practices yoga on weekend mornings |
+| A-PERSONA-VX005-3 | Deepa Joshi: Enjoys visiting local cafes in Bengaluru to read on Sunday afternoons |
+| A-PERSONA-VX006-1 | Nikhil Bose: Commutes from Indiranagar to the office |
+| A-PERSONA-VX006-2 | Nikhil Bose: Enjoys weekend cycling on the outskirts of Bengaluru |
+| A-PERSONA-VX006-3 | Nikhil Bose: Listens to tech and marketing podcasts during his morning commute |
+| A-PERSONA-VX007-1 | Priya Nair: Commutes via the Bengaluru Metro to avoid traffic |
+| A-PERSONA-VX007-2 | Priya Nair: Spends weekends practicing landscape photography in Cubbon Park |
+| A-PERSONA-VX007-3 | Priya Nair: Enjoys listening to technical podcasts during her morning coffee |
+| A-PERSONA-VX009-1 | Arjun Das: setting up a dedicated home office space in Pune |
+| A-PERSONA-VX009-2 | Arjun Das: unwinding in the evening by taking walks around the neighborhood |
+| A-PERSONA-VX009-3 | Arjun Das: brewing specialty tea during mid-day breaks |
+| A-PERSONA-VX010-1 | Karthik Subramanian: Commutes via the Namma Metro to avoid Bengaluru traffic |
+| A-PERSONA-VX010-2 | Karthik Subramanian: Spends weekends exploring local coffee roasteries in Indiranagar |
+| A-PERSONA-VX010-3 | Karthik Subramanian: Practices long-distance running in Cubbon Park on Sunday mornings |
+| A-PERSONA-VX011-1 | Aisha Khan: Commutes to the office via the Namma Metro |
+| A-PERSONA-VX011-2 | Aisha Khan: Enjoys weekend trekking in the Nandi Hills |
+| A-PERSONA-VX011-3 | Aisha Khan: Practices photography in Cubbon Park on Sunday mornings |
+| A-PERSONA-VX012-1 | Sneha Kulkarni: Commutes via the Bengaluru Metro to avoid traffic |
+| A-PERSONA-VX012-2 | Sneha Kulkarni: Practices yoga on weekend mornings |
+| A-PERSONA-VX012-3 | Sneha Kulkarni: Enjoys reading science fiction novels in the evenings |
+| A-PERSONA-VX014-1 | Fatima Sheikh: Commutes via the Bengaluru Metro to avoid traffic |
+| A-PERSONA-VX014-2 | Fatima Sheikh: Enjoys visiting local cafes in Indiranagar on weekends |
+| A-PERSONA-VX014-3 | Fatima Sheikh: Practices yoga in the mornings before starting her workday |
+| A-PERSONA-VX015-1 | Rohan Banerjee: Enjoys visiting the local coffee shops in Salt Lake City, Kolkata on weekends |
+| A-PERSONA-VX015-2 | Rohan Banerjee: Practices photography in the nearby Eco Park during his downtime |
+| A-PERSONA-VX015-3 | Rohan Banerjee: Maintains a dedicated home office setup to manage his remote work schedule |
+| A-PERSONA-VX016-1 | Imran Siddiqui: Commutes via the Bengaluru Metro to avoid peak traffic |
+| A-PERSONA-VX016-2 | Imran Siddiqui: Spends weekends exploring local coffee roasteries in Indiranagar |
+| A-PERSONA-VX016-3 | Imran Siddiqui: Practices photography in Cubbon Park on Sunday mornings |
+| A-PERSONA-VX018-1 | Rahul Verma: Commutes via the Bengaluru Metro to avoid traffic |
+| A-PERSONA-VX018-2 | Rahul Verma: Spends weekends exploring local cafes in Indiranagar |
+| A-PERSONA-VX018-3 | Rahul Verma: Enjoys playing strategy-based board games to unwind |
+
 ## Revision protocol
 
 When evidence changes an assumption:

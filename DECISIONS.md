@@ -546,3 +546,22 @@ history silently.
     material. They contain no real people or real company data.
 -   **Revisit if:** the release material is no longer allowed in the
     repository; the bootstrap would then need an explicit download step.
+
+## D-041 --- Ask states confidence and admits uncertainty (20 Nov 2026)
+
+-   **Decision:** Every Ask answer carries a status (answered, I don't know,
+    sources disagree, refused) and a confidence level. An answer without a
+    cited record is never above low confidence.
+
+## D-042 --- How employees address the CEO (20 Nov 2026)
+
+-   **Decision:** The CEO's direct reports may use her first name; everyone
+    else addresses her as "ma'am" and is more formal. A code safety net
+    replaces her first name with "ma'am" in replies from people further down.
+
+## D-043 --- Invented personal life, logged (20 Nov 2026)
+
+-   **Decision:** Each persona gets two or three ordinary, non-sensitive
+    details of life outside work, generated once and logged as low-confidence
+    assumptions (`ASSUMPTIONS.md`, `assumptions` table). Agents use them only
+    when asked about life outside work.

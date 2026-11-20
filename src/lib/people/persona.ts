@@ -5,7 +5,7 @@ import { personFacts, type DirectoryPerson } from "@/lib/people/directory";
 
 type SupabaseClient = ReturnType<typeof createServerSupabaseClient>;
 
-const PERSONA_VERSION = "records-v2";
+const PERSONA_VERSION = "records-v3";
 
 /** A persona describes who someone reports to, so it is tied to that line. */
 function personaVersion(person: DirectoryPerson) {
@@ -18,6 +18,9 @@ const personaSchema = z.object({
   cares_about: z.array(z.string().min(3).max(140)).max(5),
   knows_about: z.array(z.string().min(3).max(160)).max(8),
   would_not_know: z.array(z.string().min(3).max(160)).max(6),
+  // Invented (no record covers life outside work); each item is logged as an
+  // assumption in the assumptions table.
+  personal_life: z.array(z.string().min(5).max(160)).max(3).default([]),
 });
 
 export type Persona = z.infer<typeof personaSchema>;
@@ -63,13 +66,28 @@ Return:
  "speech_habits":["2-4 concrete verbal habits, e.g. 'leads with the number, then the caveat'"],
  "cares_about":["what they would focus on in their job"],
  "knows_about":["topics they would plausibly know first-hand from their role and the facts"],
- "would_not_know":["topics outside their role they would defer on, and to whom"]}`,
+ "would_not_know":["topics outside their role they would defer on, and to whom"],
+ "personal_life":["2-3 short, ordinary details of life outside work, invented but plausible for their city, age range and role (commute, a hobby, how they unwind). Nothing about health, family problems, religion, politics, money or relationships."]}`,
       PERSONA_SYSTEM,
       { task: "chat", maxOutputTokens: 900, timeoutMs: 20_000, json: true },
     );
     const json = text.match(/\{[\s\S]*\}/)?.[0];
     if (!json) return null;
     const persona = personaSchema.parse(JSON.parse(json));
+    // Anything invented is logged as an assumption (low confidence, no source).
+    if (persona.personal_life.length) {
+      await supabase.from("assumptions").upsert(
+        persona.personal_life.map((detail, index) => ({
+          assumption_ref: `A-PERSONA-${person.empId}-${index + 1}`,
+          statement: `${person.name}: ${detail}`,
+          basis: "Invented persona detail for the chat agent. No released record covers this person's life outside work.",
+          confidence: "low",
+          status: "active",
+          what_would_change_mind: "Any record, or the person themself, saying otherwise.",
+        })),
+        { onConflict: "assumption_ref" },
+      );
+    }
     await supabase.from("agent_personas").upsert(
       {
         employee_profile_id: employeeProfileId,

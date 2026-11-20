@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     const history = (body.history ?? []).slice(-4);
 
     if (isPrivateMessageRequest(question)) {
-      return Response.json({ answer: PRIVATE_MESSAGE_REFUSAL, sources: [], mode: "policy" });
+      return Response.json({ answer: PRIVATE_MESSAGE_REFUSAL, sources: [], confidence: "high", status: "refused", mode: "policy" });
     }
     if (isQuitRankingRequest(question)) {
       // Answered from the saved retention check (work records only).
@@ -76,6 +76,8 @@ export async function POST(request: Request) {
             : "The last retention check found no one with a clear reason for a check-in. You can re-run it on the People page."
           : RETENTION_CHECK_FALLBACK,
         sources: [],
+        confidence: "high",
+        status: "refused",
         mode: "policy",
       });
     }
@@ -84,6 +86,8 @@ export async function POST(request: Request) {
       return Response.json({
         answer: COMPENSATION_REFUSAL,
         sources: [],
+        confidence: "high",
+        status: "refused",
         mode: "policy",
       });
     }
@@ -174,8 +178,10 @@ export async function POST(request: Request) {
 
     if (notes.length === 0) {
       return Response.json({
-        answer: "None of the documents we have cover that yet.",
+        answer: "I don't know: none of the documents we have cover that yet.",
         sources: [],
+        confidence: "low",
+        status: "unknown",
         mode: "no_record",
       });
     }
@@ -200,14 +206,46 @@ export async function POST(request: Request) {
     }));
 
     try {
-      const { text, model } = await generateWithFailover(
+      const { text: raw, model } = await generateWithFailover(
         `${history.length ? `Earlier in this conversation:\n${history.map((turn) => `CEO: ${turn.question}\nYou: ${turn.answer}`).join("\n")}\n\n` : ""}The CEO asks: "${question}"
 
 Notes:
-${notes.map((note, index) => `[${index + 1}] ${note}`).join("\n")}`,
+${notes.map((note, index) => `[${index + 1}] ${note}`).join("\n")}
+
+Return JSON: {"answer": "...", "confidence": "high|medium|low", "status": "answered|unknown|conflict"}.
+- status "unknown": the notes do not answer the question. The answer must begin "I don't know" and say which record would answer it.
+- status "conflict": the notes disagree on the point asked. The answer must begin "The sources disagree" and give each version with its citation.
+- confidence: high = two or more company records agree; medium = one company record, or records plus a call; low = only a call, a conflict, or nothing.`,
         CEO_ASK_SYSTEM,
-        { task: "chat", maxOutputTokens: 700, timeoutMs: 20_000 },
+        {
+          task: "chat",
+          maxOutputTokens: 900,
+          timeoutMs: 20_000,
+          schema: {
+            type: "OBJECT",
+            properties: {
+              answer: { type: "STRING" },
+              confidence: { type: "STRING", enum: ["high", "medium", "low"] },
+              status: { type: "STRING", enum: ["answered", "unknown", "conflict"] },
+            },
+            required: ["answer", "confidence", "status"],
+          },
+          validate: (body) => {
+            try {
+              return typeof JSON.parse(body).answer === "string";
+            } catch {
+              return false;
+            }
+          },
+        },
       );
+      const parsed = JSON.parse(raw) as { answer: string; confidence?: string; status?: string };
+      const text = parsed.answer;
+      const status = ["answered", "unknown", "conflict"].includes(parsed.status ?? "") ? parsed.status! : "answered";
+      // An answer with no cited record cannot be high confidence.
+      const cited = /\[\d/.test(text);
+      const confidence =
+        status !== "answered" || !cited ? "low" : ["high", "medium", "low"].includes(parsed.confidence ?? "") ? parsed.confidence! : "medium";
       // Renumber citations 1..k in order of first use, one number per
       // document (several chunks of the same file share a citation), so the
       // CEO sees [1] [2] [3], not internal note numbers.
@@ -231,6 +269,8 @@ ${notes.map((note, index) => `[${index + 1}] ${note}`).join("\n")}`,
         sources: order
           .map((n) => citedSources.find((source) => source.n === n)!)
           .map((source) => ({ ...source, n: renumber.get(source.n)! })),
+        confidence,
+        status,
         mode: "live",
         model,
       });
@@ -243,6 +283,8 @@ ${notes.map((note, index) => `[${index + 1}] ${note}`).join("\n")}`,
             ? "I can't put together a full answer right now, but here is what the records say on this."
             : "I can't answer that right now, and none of the documents we have cover it.",
         sources: citedSources.filter((source) => !String(source.id).startsWith("context-")),
+        confidence: "low",
+        status: sources.length > 0 ? "answered" : "unknown",
         mode: "stored",
       });
     }

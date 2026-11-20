@@ -14,3 +14,16 @@ export function addressCeoCorrectly(answer: string, ceoFirstName: string | null,
       replacement ? `, ${replacement}${punctuation}` : punctuation);
 }
 
+/**
+ * People below the CEO's direct reports address her as "ma'am". If a reply
+ * still uses her first name as a form of address ("Ananya, ..." / "..., Ananya."),
+ * it becomes "ma'am". Mentions inside a sentence are left alone.
+ */
+export function formalAddress(answer: string, ceoFirstName: string | null) {
+  if (!ceoFirstName) return answer;
+  const name = ceoFirstName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return answer
+    .replace(new RegExp(`^((?:Hi|Hello|Good (?:morning|afternoon|evening)),?\\s+)?${name}([,!])`), (_match, greeting: string | undefined, punctuation: string) =>
+      greeting ? `${greeting.trim().replace(/,$/, "")}, ma'am${punctuation}` : `Ma'am${punctuation}`)
+    .replace(new RegExp(`,\\s*${name}([.!?])`, "g"), (_match, punctuation: string) => `, ma'am${punctuation}`);
+}
